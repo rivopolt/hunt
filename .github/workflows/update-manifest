@@ -1,0 +1,50 @@
+name: Update MyFiles manifest
+
+# Runs whenever files change under MyFiles/uploads/, and regenerates
+# MyFiles/manifest.json — a plain static JSON file listing what's there.
+# The app fetches this manifest (same-origin, so no CORS issues at all)
+# to know which files to auto-load. This replaces the old PHP
+# "list_files.php" endpoint, since GitHub Pages can't run PHP.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "MyFiles/uploads/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate manifest.json
+        run: |
+          mkdir -p MyFiles
+          cd MyFiles/uploads
+          # List only the file types the app knows how to load, one per line,
+          # sorted, then turn that into a JSON array.
+          files=$(find . -maxdepth 1 -type f \
+            \( -iname "*.kml" -o -iname "*.kmz" -o -iname "*.zip" \) \
+            -printf "%f\n" | sort)
+          cd ../..
+          python3 - "$files" <<'PYEOF'
+          import json, sys
+          raw = sys.argv[1]
+          names = [n for n in raw.split("\n") if n.strip()]
+          with open("MyFiles/manifest.json", "w") as f:
+              json.dump({"files": names}, f, indent=2)
+              f.write("\n")
+          PYEOF
+          cat MyFiles/manifest.json
+
+      - name: Commit manifest if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-update MyFiles/manifest.json"
+          file_pattern: "MyFiles/manifest.json"
