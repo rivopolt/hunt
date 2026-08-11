@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>Jäljed</title>
+
+<!-- Leaflet core -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Leaflet plugins -->
+<script src="https://unpkg.com/@mapbox/togeojson@0.16.0/togeojson.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shpjs/6.2.0/shp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<link rel="stylesheet" href="css/style.css">
+
+<!--
+  GoatCounter — cookie-free, GDPR-friendly, no consent banner needed.
+  Works directly on github.io (unlike Cloudflare Web Analytics, which
+  rejects shared/multi-tenant domains like *.github.io — see README.md
+  "Külastuste statistika" for the full explanation).
+  REPLACE "YOUR-CODE" below with your own GoatCounter site code.
+  Until you replace it, this line does nothing harmful — it just points
+  at a dashboard that doesn't exist yet, so nothing gets recorded.
+-->
+<script data-goatcounter="https://YOUR-CODE.goatcounter.com/count"
+        async src="https://gc.zgo.at/count.js"></script>
+
+<!--
+  Cloudflare Web Analytics — kept here, inactive, for later use once
+  this site has a custom domain (Cloudflare Web Analytics does not
+  accept *.github.io as a site). Uncomment and fill in your token
+  once that's in place; see README.md for the sign-up steps.
+
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "YOUR_CLOUDFLARE_ANALYTICS_TOKEN"}'></script>
+-->
+</head>
+<body>
+
+<div id="app">
+
+  <!-- LEFT PANEL: layer control -->
+  <aside id="layerPanel" class="collapsed">
+    <div class="panelHeader">
+      <button id="panelToggleBtn" title="Peida/näita paneel">☰</button>
+      <h1>Kihid</h1>
+      <button id="appInfoBtn" class="infoIconBtn" title="Rakenduse info">ⓘ</button>
+    </div>
+
+    <div class="panelBody">
+
+      <!-- SEARCH / LOCATE (not a layer section, stays above everything) -->
+      <section class="ctrlSection noCollapse">
+        <button id="locateBtn" class="wideBtn">📍 Minu asukoht</button>
+        <button id="fitEstoniaBtn" class="wideBtn">🇪🇪 Kogu Eesti</button>
+      </section>
+
+      <!-- ULUKITE JÄLJED -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-tracks" title="Ahenda/laienda">▾</button>
+          <h2>Ulukite jäljed
+            <button class="infoIconBtn small" data-info="tracksInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-tracks">
+
+          <button id="tracksLoadBtn" class="wideBtn secondaryBtn">↻ Lae jäljed</button>
+          <div id="tracksStatus" class="statusLine"></div>
+
+          <p class="smallLabel">Näita:</p>
+          <div id="tracksSpeciesFilter" class="layerList"></div>
+
+          <p class="smallLabel">Kuupäevavahemik:</p>
+          <div class="trackDateRange">
+            <input type="date" id="tracksDateFrom">
+            <span>—</span>
+            <input type="date" id="tracksDateTo">
+          </div>
+
+          <div id="tracksCount" class="statusLine"></div>
+        </div>
+      </section>
+
+      <!-- PRIA WFS -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-pria" title="Ahenda/laienda">▾</button>
+          <h2>PRIA põllumassiivid
+            <button class="infoIconBtn small" data-info="priaInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-pria">
+
+          <button id="priaLoadLayersBtn" class="wideBtn secondaryBtn">↻ Lae kihtide loend</button>
+
+          <div id="priaQuickButtons" class="presetQuickButtons hidden">
+            <button id="priaSelectMainBtn" class="smallBtn">⭐ Vali PRIA PÕLLUD (peamine)</button>
+            <button id="priaSelectAllPolludBtn" class="smallBtn">☑ Vali kõik "PÕLLUD" kihid</button>
+          </div>
+
+          <div id="priaMainGroupList" class="layerList"></div>
+
+          <button id="priaOtherToggleBtn" class="wideBtn secondaryBtn hidden">▸ Näita muid kihte</button>
+          <div id="priaOtherGroupList" class="layerList hidden"></div>
+
+          <div id="priaStatus" class="statusLine"></div>
+
+          <div class="presetBar">
+            <input type="text" id="priaPresetName" placeholder="Eelseadistuse nimi">
+            <button id="priaPresetSaveBtn" class="smallBtn">💾 Salvesta</button>
+          </div>
+          <div class="presetBar">
+            <select id="priaPresetSelect"><option value="">— vali salvestatud otsing —</option></select>
+            <button id="priaPresetLoadBtn" class="smallBtn">📂 Lae</button>
+            <button id="priaPresetDeleteBtn" class="smallBtn dangerBtn">🗑</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- MINU KAARDID -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-mine" title="Ahenda/laienda">▾</button>
+          <h2>Minu kaardid
+            <button class="infoIconBtn small" data-info="myMapsInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-mine">
+
+          <div class="layerRow">
+            <label for="fileInput" class="wideBtn fileBtn">＋ Lisa fail (eelvaade ainult minu brauseris)</label>
+            <input type="file" id="fileInput" accept=".kml,.kmz,.zip" multiple hidden>
+          </div>
+          <p class="smallNote">See nupp näitab faili kaardil ainult sinu enda praeguses
+          brauseris/seansis. Et fail oleks <strong>jäädavalt kõigile</strong> lingi kaudu
+          nähtav, lisa see fail GitHubi repositooriumis kausta <code>MyFiles/uploads/</code>
+          ja tee <code>git push</code> — nimekiri uueneb automaatselt (vt ⓘ).</p>
+
+          <button id="refreshMyFilesBtn" class="wideBtn secondaryBtn">↻ Uuenda MyFiles nimekirja</button>
+          <div id="myFilesStatus" class="statusLine"></div>
+          <div id="myFilesFileList" class="layerList"></div>
+
+          <div id="myLayersList" class="myLayersList"></div>
+
+        </div>
+      </section>
+
+      <!-- Live field-data join (Google Sheets or a repo-committed CSV/XLSX) -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-sheets" title="Ahenda/laienda">▾</button>
+          <h2>Väliandmed (Sheets / repo-fail)
+            <button class="infoIconBtn small" data-info="sheetsInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-sheets">
+
+          <div class="sourceToggle">
+            <label><input type="radio" name="sheetSource" value="google" checked> Google Sheets</label>
+            <label><input type="radio" name="sheetSource" value="repofile"> Repo fail (CSV/XLSX)</label>
+          </div>
+
+          <div id="googleSourceControls">
+            <label class="smallLabel" for="sheetUrlInput">Google Sheeti link või ID:</label>
+            <input type="text" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/...">
+            <button id="sheetLoadBtn" class="wideBtn secondaryBtn">↻ Loe Google Sheet</button>
+          </div>
+
+          <div id="repoFileSourceControls" class="hidden">
+            <label class="smallLabel" for="repoFileUrlInput">Faili tee SINU repositooriumis (mitte väline link!):</label>
+            <input type="text" id="repoFileUrlInput" placeholder="MyFiles/data/valiandmed.xlsx">
+            <button id="repoFileLoadBtn" class="wideBtn secondaryBtn">↻ Loe repo fail</button>
+            <div id="repoFileTabRow" class="hidden">
+              <label class="smallLabel" for="repoFileTabSelect">Tööleht (tab):</label>
+              <select id="repoFileTabSelect"></select>
+            </div>
+          </div>
+
+          <div id="sheetStatus" class="statusLine"></div>
+
+          <div id="sheetJoinControls" class="hidden">
+            <label class="smallLabel" for="sheetKeyColumnSelect">Objekti nime veerg:</label>
+            <select id="sheetKeyColumnSelect"></select>
+
+            <div class="rowWithBtn">
+              <div class="rowWithBtnField">
+                <label class="smallLabel" for="sheetTargetLayerSelect">Kaardikiht, millega siduda:</label>
+                <select id="sheetTargetLayerSelect"></select>
+              </div>
+              <button id="sheetRefreshTargetsBtn" class="smallIconBtn" title="Uuenda kihtide loendit">↻</button>
+            </div>
+
+            <label class="smallLabel" for="sheetTargetFieldSelect">Kihi väli, mis vastab objekti nimele:</label>
+            <select id="sheetTargetFieldSelect"></select>
+
+            <button id="sheetJoinBtn" class="wideBtn">🔗 Ühenda andmed</button>
+
+            <label class="smallLabel" for="sheetAutoRefreshSelect">Automaatne värskendus:</label>
+            <select id="sheetAutoRefreshSelect">
+              <option value="0">Väljas</option>
+              <option value="30000">30 sekundit</option>
+              <option value="60000">1 minut</option>
+              <option value="300000">5 minutit</option>
+            </select>
+
+            <div id="sheetJoinStatus" class="statusLine"></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+
+  <button id="panelOpenerBtn" title="Näita kihtide paneeli">☰ Kihid</button>
+
+  <!-- RIGHT: map -->
+  <main id="mapPanel">
+    <div id="map"></div>
+    <div class="mapTopRightControls">
+      <div class="mapQuickBaseButtons">
+        <button id="quickKaartBtn" class="mapQuickBtn" data-layer-id="maaamet_kaart">Põhikaart</button>
+        <button id="quickFotoBtn" class="mapQuickBtn" data-layer-id="maaamet_foto">Ortofoto</button>
+        <button id="mapSearchToggleBtn" class="mapQuickBtn">🔍 Otsi objekti</button>
+        <button id="trackRegisterToggleBtn" class="mapQuickBtn trackRegisterBtn">🐾 Registreeri jälg</button>
+      </div>
+
+      <div id="mapSearchWidget" class="mapSearchWidget hidden">
+        <div class="mapSearchWidgetHeader">
+          <span>Otsi objekti</span>
+          <button id="searchCloseBtn" class="smallIconBtn" title="Sulge otsing">✕</button>
+        </div>
+        <label class="smallLabel" for="searchLayerSelect">Kiht:</label>
+        <select id="searchLayerSelect"></select>
+        <label class="smallLabel" for="searchFieldSelect">Väli (nt nimi või kood):</label>
+        <select id="searchFieldSelect"></select>
+        <input type="text" id="searchTextInput" placeholder="Otsi väärtust...">
+        <button id="searchGoBtn" class="wideBtn secondaryBtn">🔍 Otsi</button>
+        <div id="searchStatus" class="statusLine"></div>
+        <div id="searchResult" class="searchResultBox hidden"></div>
+      </div>
+
+      <div id="trackRegisterWidget" class="mapSearchWidget hidden">
+        <div class="mapSearchWidgetHeader">
+          <span>Registreeri jälg</span>
+          <button id="trackRegisterCloseBtn" class="smallIconBtn" title="Sulge">✕</button>
+        </div>
+
+        <div class="sourceToggle">
+          <label><input type="radio" name="trackGeomType" value="point" checked> Punkt</label>
+          <label><input type="radio" name="trackGeomType" value="line"> Joon</label>
+        </div>
+
+        <div id="trackDirectionRow" class="hidden">
+          <label class="smallLabel" for="trackDirectionSelect">Suund:</label>
+          <select id="trackDirectionSelect"></select>
+        </div>
+
+        <label class="smallLabel" for="trackSpeciesSelect">Loom:</label>
+        <select id="trackSpeciesSelect"></select>
+
+        <label class="smallLabel" for="trackDateInput">Kuupäev:</label>
+        <input type="date" id="trackDateInput">
+
+        <label class="smallLabel" for="trackPackSizeInput">Karja suurus:</label>
+        <input type="number" id="trackPackSizeInput" min="0" step="1" placeholder="nt 1">
+
+        <label class="smallLabel" for="trackRemarksInput">Märkused:</label>
+        <textarea id="trackRemarksInput" rows="2" placeholder="Vabas vormis lisainfo..."></textarea>
+
+        <button id="trackDrawStartBtn" class="wideBtn">✏️ Alusta joonistamist kaardil</button>
+        <p id="trackDrawHint" class="smallNote hidden"></p>
+
+        <div class="rowWithBtn">
+          <button id="trackSaveBtn" class="wideBtn" disabled>💾 Salvesta jälg</button>
+          <button id="trackCancelDrawBtn" class="smallIconBtn hidden" title="Tühista joonistus">✕</button>
+        </div>
+
+        <div id="trackSaveStatus" class="statusLine"></div>
+      </div>
+    </div>
+
+    <button id="mapLocateBtn" class="mapLocateBtn" title="Minu asukoht">📍</button>
+    <div id="coordReadout" class="coordReadout"></div>
+  </main>
+
+</div>
+
+<!-- Generic modal used by all info (ⓘ) buttons -->
+<div id="modalOverlay" class="modalOverlay hidden">
+  <div class="modalBox">
+    <div class="modalHeader">
+      <span id="modalTitle"></span>
+      <button id="modalCloseBtn" class="closeIframeBtn">✕</button>
+    </div>
+    <div id="modalBody" class="modalBody"></div>
+  </div>
+</div>
+
+<!-- Hidden templates with help text for each info icon -->
+<template id="tpl-tracksInfo"><h3>Ulukite jäljed</h3>
+<p>Vajuta kaardil nuppu <strong>"🐾 Registreeri jälg"</strong>, täida vorm ja vajuta
+"✏️ Alusta joonistamist kaardil". <strong>Punkti</strong> puhul lisab üks klõps kaardile
+kohe punkti. <strong>Joone</strong> puhul lisab iga klõps ühe punkti joonele — lõpeta
+topeltklõpsuga. Kui olete valinud suuna (nool alguses/lõpus/mõlemas otsas), joonistatakse
+see kohe pärast salvestamist joonele.</p>
+<p><strong>Ajutine eelvaade:</strong> "💾 Salvesta jälg" näitab jälge kaardil kohe, aga
+ainult sinu enda praeguses brauseris/seansis, ja käivitab ühe väikese <code>.geojson</code>
+faili allalaadimise.</p>
+<p><strong>Jäädav, kõigile nähtav lisamine:</strong></p>
+<ol>
+<li>Lisa allalaaditud fail repositooriumis kausta <code>data/registrations/</code>.</li>
+<li>Tee <code>git push</code> (nt otse GitHubi veebiliideses "Add file" → "Upload files").</li>
+<li>GitHub Action liidab kõik selle kausta failid automaatselt üheks failiks
+<code>data/registrations_all.geojson</code> — pärast seda ilmub jälg kõigile automaatselt.</li>
+</ol>
+<p class="smallNote">Iga jälg on eraldi fail, nii et mitme inimese samaaegsed
+registreeringud ei lähe git-is omavahel konflikti.</p>
+<p><strong>Filtreerimine:</strong> vasakul paneelil "Ulukite jäljed" all saab jälgi
+näidata/peita looma liigi ja kuupäevavahemiku järgi — sobib lihtsaks analüüsiks.</p></template>
+
+<template id="tpl-priaInfo"><h3>PRIA põllumassiivid</h3>
+<p>Vajuta "↻ Lae kihtide loend", et tuua PRIA WFS-teenusest saadaolevad kihid.
+Kihid, mille nimi sisaldab "PÕLLUD" (nt PRIA_PÕLLUD), rühmitatakse ülemisse
+gruppi ja neid saab kiirelt valida nuppudega "⭐ Vali PRIA PÕLLUD (peamine)"
+(valib peamise/kõige tõenäolisema kihi) ja "☑ Vali kõik 'PÕLLUD' kihid"
+(valib kõik seotud kihid). Muud, harvem vajaminevad kihid on peidetud
+"▸ Näita muid kihte" nupu taha.</p>
+<p>Igal kihil on oma püsiv värv. Andmed laetakse alati ainult praeguse
+kaardivaate (BBOX) piires ja alles suumitasemest 14 alates. Sagedasi
+kihivalikuid saad salvestada nimega eelseadistusena.</p></template>
+
+<template id="tpl-myMapsInfo"><h3>Minu kaardid</h3>
+<p><strong>Jäljed jookseb GitHub Pages peal, mis ei toeta serveripoolset koodi
+(PHP jms) — seetõttu on failihaldus git-põhine, mitte veebivormi kaudu.</strong></p>
+<p><strong>Ajutine eelvaade:</strong> "+ Lisa fail" nupp näitab valitud faili
+kaardil kohe, aga ainult sinu enda praeguses brauseris/seansis — see kaob,
+kui lehte värskendad, ja teised lingi kasutajad seda ei näe.</p>
+<p><strong>Jäädav, kõigile nähtav lisamine:</strong></p>
+<ol>
+<li>Lisa oma KML/KMZ/SHP(zip) fail repositooriumis kausta <code>MyFiles/uploads/</code>.</li>
+<li>Tee <code>git push</code> (nt otse GitHubi veebiliideses "Add file" → "Upload files").</li>
+<li>GitHub Action uuendab automaatselt faili <code>MyFiles/manifest.json</code>
+(tavaliselt u. minuti jooksul) — pärast seda ilmub fail kõigile automaatselt,
+kes lehte avavad, ilma et keegi peaks midagi käsitsi tegema.</li>
+</ol>
+<p><strong>Eemaldamine:</strong> "✕" nupp eemaldab kihi ainult praegusest
+vaatest (sinu enda seansist). Et fail oleks kõigile jäädavalt kadunud,
+kustuta see repositooriumist ja tee git push — manifest uueneb automaatselt.</p>
+<p><strong>Suumitasemed:</strong> iga kihi juures saab määrata, millisest
+suumitasemest kiht ise ilmub (vaikimisi 13) ja millisest suumitasemest
+ilmuvad sildid (vaikimisi 15). Kiht kuvab alati ainult praeguses
+kaardivaates olevaid objekte, et hoida rakendus kiire ja kerge ka
+suurte failide korral.</p>
+<p><strong>Värvid:</strong> vali "Ühtne värv" (kogu täide üht värvi) või
+"Temaatiline" (täitevärv vastavalt valitud andmevälja väärtusele — igale
+unikaalsele väärtusele oma värv, koos väikese legendiga, legendis saab
+värve ka käsitsi ümber määrata). "Värv" (täide) ja "Joon" (äärisjoon) on
+eraldi valikud — vaikimisi on need sama värvi, kuni muudad kumbagi eraldi.
+"Transp." reguleerib nii täite kui joone läbipaistvust protsentides koos
+(0% = täiesti täidetud/nähtav, 100% = täiesti läbipaistev/nähtamatu).</p>
+<p><strong>Info ja sildid:</strong> klõpsa kaardil objektil, et näha kõiki
+selle andmevälju popup-aknas. Sildi väli valitakse kihi rea alt.</p>
+<p><strong>Otsing:</strong> otsingu leiad nüüd kaardi enda pealt, "🔍 Otsi objekti"
+nupu alt (paremal üleval, koos "Põhikaart"/"Ortofoto" kiirnuppudega) — vali kiht
+ja väli (nt nimi või kood), sisesta otsitav väärtus, ja leitud objektile suumitakse
+koos lingiga Google Mapsi juhisteks otse sellesse asukohta.</p></template>
+
+<template id="tpl-sheetsInfo"><h3>Väliandmed (Sheets / repo-fail)</h3>
+<p><strong>Andmeallikas ei pea sisaldama koordinaate.</strong> Selle asemel peab
+seal olema veerg, mis kordab sama objekti nime/identifikaatorit, mis on juba olemas
+mõne kaardil oleva kihi ühel andmeväljal. Rakendus otsib iga rea jaoks kaardilt
+vastava objekti nime järgi ja lisab kõik veerud selle objekti andmete külge.</p>
+
+<p><strong>Google Sheets (live, uueneb automaatselt):</strong></p>
+<ol>
+<li>Fail → Jaga → "Kõik, kellel link on" (vaataja).</li>
+<li>Kleebi link ja vajuta "↻ Loe Google Sheet".</li>
+</ol>
+<p class="smallNote">Sheeti loetakse JSONP kaudu (mitte tavaline fetch()), mis
+töötab otse brauserist ka puhtal staatilisel hostimisel nagu GitHub Pages —
+ei vaja mingit serverit ega proksit.</p>
+
+<p><strong>Repo fail — CSV/XLSX (nt OneDrive/Exceli eksport):</strong></p>
+<ol>
+<li>Ekspordi oma OneDrive'i/Exceli tabel <code>.xlsx</code> või <code>.csv</code>
+failina (Fail → Salvesta koopiana / Export).</li>
+<li>Lisa see fail oma repositooriumisse (nt kausta <code>MyFiles/data/</code>)
+ja tee git push.</li>
+<li>Sisesta rakenduses faili tee (nt <code>MyFiles/data/valiandmed.xlsx</code>)
+ja vajuta "↻ Loe repo fail".</li>
+</ol>
+<p class="smallNote">See ei ole "elus" OneDrive'iga samal sekundil — andmed
+uuenevad alles siis, kui ekspordid faili uuesti ja teed uue git push'i.
+Kuna GitHub Pages ei toeta serveripoolset koodi, ei ole otse OneDrive'ist
+reaalajas lugemine (CORS piirangute tõttu) selle hostimisviisi juures
+võimalik ilma eraldi backendita.</p></template>
+
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
