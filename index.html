@@ -252,11 +252,11 @@
         </div>
 
         <div class="sourceToggle">
-          <label><input type="radio" name="trackGeomType" value="point" checked> Punkt</label>
-          <label><input type="radio" name="trackGeomType" value="line"> Joon</label>
+          <label><input type="radio" name="trackGeomType" value="point"> Punkt</label>
+          <label><input type="radio" name="trackGeomType" value="line" checked> Joon</label>
         </div>
 
-        <div id="trackDirectionRow" class="hidden">
+        <div id="trackDirectionRow">
           <label class="smallLabel" for="trackDirectionSelect">Suund:</label>
           <select id="trackDirectionSelect"></select>
         </div>
@@ -268,18 +268,24 @@
         <input type="date" id="trackDateInput">
 
         <label class="smallLabel" for="trackPackSizeInput">Karja suurus:</label>
-        <input type="number" id="trackPackSizeInput" min="0" step="1" placeholder="nt 1">
+        <input type="number" id="trackPackSizeInput" min="0" step="1" value="1">
 
         <label class="smallLabel" for="trackRemarksInput">Märkused:</label>
         <textarea id="trackRemarksInput" rows="2" placeholder="Vabas vormis lisainfo..."></textarea>
+
+        <label class="smallLabel" for="trackRegistrantSelect">Registreerija:</label>
+        <select id="trackRegistrantSelect"></select>
+        <input type="text" id="trackRegistrantOtherInput" class="hidden" placeholder="Initsiaalid" maxlength="10">
 
         <button id="trackDrawStartBtn" class="wideBtn">✏️ Alusta joonistamist kaardil</button>
         <p id="trackDrawHint" class="smallNote hidden"></p>
 
         <div class="rowWithBtn">
-          <button id="trackSaveBtn" class="wideBtn" disabled>💾 Salvesta jälg</button>
+          <button id="trackFinishLineBtn" class="smallIconBtn hidden" title="Lõpeta joon" disabled>✔</button>
           <button id="trackCancelDrawBtn" class="smallIconBtn hidden" title="Tühista joonistus">✕</button>
         </div>
+
+        <button id="trackSaveBtn" class="wideBtn" disabled>💾 Salvesta jälg</button>
 
         <div id="trackSaveStatus" class="statusLine"></div>
       </div>

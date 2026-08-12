@@ -60,7 +60,8 @@ const CONFIG = {
       { id: "start", label: "Nool alguses" },
       { id: "end",   label: "Nool lõpus" },
       { id: "both",  label: "Nool mõlemas otsas" }
-    ]
+    ],
+    registrants: ["RP", "OP", "JL", "AV"]
   },
 
   /* ------------------------------------------------------------------

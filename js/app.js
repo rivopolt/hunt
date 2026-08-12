@@ -179,13 +179,30 @@ function setupTracks() {
     speciesSelect.appendChild(opt);
   });
 
-  // Populate the direction <select>.
+  // Populate the direction <select>; default to "arrow at end".
   const dirSelect = document.getElementById("trackDirectionSelect");
   CONFIG.tracks.directions.forEach(d => {
     const opt = document.createElement("option");
     opt.value = d.id;
     opt.textContent = d.label;
     dirSelect.appendChild(opt);
+  });
+  dirSelect.value = "end";
+
+  // Populate the registrant <select> (RP/OP/JL/AV + "Muu" free-text option).
+  const registrantSelect = document.getElementById("trackRegistrantSelect");
+  CONFIG.tracks.registrants.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r;
+    opt.textContent = r;
+    registrantSelect.appendChild(opt);
+  });
+  const otherOpt = document.createElement("option");
+  otherOpt.value = "other";
+  otherOpt.textContent = "Muu...";
+  registrantSelect.appendChild(otherOpt);
+  registrantSelect.addEventListener("change", () => {
+    document.getElementById("trackRegistrantOtherInput").classList.toggle("hidden", registrantSelect.value !== "other");
   });
 
   // Species filter checkboxes (left panel), all checked by default.
@@ -220,6 +237,7 @@ function setupTracks() {
   document.getElementById("trackRegisterToggleBtn").addEventListener("click", toggleTrackRegisterWidget);
   document.getElementById("trackRegisterCloseBtn").addEventListener("click", closeTrackRegisterWidget);
   document.getElementById("trackDrawStartBtn").addEventListener("click", startTrackDrawing);
+  document.getElementById("trackFinishLineBtn").addEventListener("click", finishTrackDrawing);
   document.getElementById("trackCancelDrawBtn").addEventListener("click", cancelTrackDrawing);
   document.getElementById("trackSaveBtn").addEventListener("click", saveTrackRegistration);
   document.getElementById("tracksLoadBtn").addEventListener("click", loadTracksData);
@@ -249,61 +267,69 @@ function closeTrackRegisterWidget() {
   cancelTrackDrawing();
 }
 
-/* ---- Drawing on the map ---- */
+/* ---- Drawing on the map ----
+   Lines finish via an explicit "✔ Lõpeta joon" button rather than
+   double-click — double-click fires two ordinary "click" events before
+   the "dblclick" event itself in Leaflet, which made the line-finishing
+   unreliable (it depended on precise browser/timing behavior). A button
+   is unambiguous and works the same everywhere. */
 function startTrackDrawing() {
   cancelTrackDrawing();
   const type = document.querySelector('input[name="trackGeomType"]:checked').value;
   trackDrawState = { type, points: [] };
   document.getElementById("map").classList.add("map-drawing-cursor");
   map.on("click", handleTrackDrawClick);
-  if (type === "line") {
-    map.doubleClickZoom.disable();
-    map.on("dblclick", handleTrackDrawDblClick);
-  }
+
   const hint = document.getElementById("trackDrawHint");
   hint.classList.remove("hidden");
   hint.textContent = type === "point"
     ? "Klõpsa kaardil, et paigutada punkt."
-    : "Klõpsa kaardil, et lisada joonele punkte. Lõpeta topeltklõpsuga (vähemalt 2 punkti).";
+    : "Klõpsa kaardil, et lisada joonele punkte. Kui oled valmis (vähemalt 2 punkti), vajuta \"✔\".";
   document.getElementById("trackCancelDrawBtn").classList.remove("hidden");
   document.getElementById("trackSaveBtn").disabled = true;
+
+  const finishBtn = document.getElementById("trackFinishLineBtn");
+  if (type === "line") {
+    finishBtn.classList.remove("hidden");
+    finishBtn.disabled = true;
+  } else {
+    finishBtn.classList.add("hidden");
+  }
 }
 
 function handleTrackDrawClick(e) {
   if (!trackDrawState) return;
   trackDrawState.points.push(e.latlng);
   redrawTrackPreview();
-  if (trackDrawState.type === "point") finishTrackDrawing();
-}
-
-function handleTrackDrawDblClick(e) {
-  if (!trackDrawState || trackDrawState.type !== "line") return;
-  if (trackDrawState.points.length < 2) {
-    notify("Joone jaoks on vaja vähemalt 2 punkti.");
-    return;
+  if (trackDrawState.type === "point") {
+    finishTrackDrawing();
+  } else {
+    document.getElementById("trackFinishLineBtn").disabled = trackDrawState.points.length < 2;
   }
-  finishTrackDrawing();
 }
 
 function finishTrackDrawing() {
+  if (!trackDrawState) return;
+  if (trackDrawState.type === "line" && trackDrawState.points.length < 2) {
+    notify("Joone jaoks on vaja vähemalt 2 punkti.");
+    return;
+  }
   map.off("click", handleTrackDrawClick);
-  map.off("dblclick", handleTrackDrawDblClick);
-  map.doubleClickZoom.enable();
   document.getElementById("map").classList.remove("map-drawing-cursor");
   document.getElementById("trackDrawHint").textContent = "Valmis — kontrolli vormi ja vajuta \"💾 Salvesta jälg\".";
+  document.getElementById("trackFinishLineBtn").classList.add("hidden");
   document.getElementById("trackSaveBtn").disabled = false;
 }
 
 function cancelTrackDrawing() {
   map.off("click", handleTrackDrawClick);
-  map.off("dblclick", handleTrackDrawDblClick);
-  map.doubleClickZoom.enable();
   document.getElementById("map").classList.remove("map-drawing-cursor");
   trackPreviewLayers.forEach(l => map.removeLayer(l));
   trackPreviewLayers = [];
   trackDrawState = null;
   document.getElementById("trackDrawHint").classList.add("hidden");
   document.getElementById("trackCancelDrawBtn").classList.add("hidden");
+  document.getElementById("trackFinishLineBtn").classList.add("hidden");
   document.getElementById("trackSaveBtn").disabled = true;
 }
 
@@ -343,6 +369,10 @@ function saveTrackRegistration() {
   const packSizeRaw = document.getElementById("trackPackSizeInput").value;
   const packSize = packSizeRaw === "" ? null : Number(packSizeRaw);
   const remarks = document.getElementById("trackRemarksInput").value.trim();
+  const registrantSelectVal = document.getElementById("trackRegistrantSelect").value;
+  const registrant = registrantSelectVal === "other"
+    ? document.getElementById("trackRegistrantOtherInput").value.trim()
+    : registrantSelectVal;
 
   const coords = type === "point"
     ? [trackDrawState.points[0].lng, trackDrawState.points[0].lat]
@@ -358,6 +388,7 @@ function saveTrackRegistration() {
       date,
       pack_size: packSize,
       remarks,
+      registrant,
       registered_at: new Date().toISOString()
     }
   };
@@ -378,7 +409,7 @@ function saveTrackRegistration() {
 
   cancelTrackDrawing();
   document.getElementById("trackRemarksInput").value = "";
-  document.getElementById("trackPackSizeInput").value = "";
+  document.getElementById("trackPackSizeInput").value = "1";
 }
 
 function downloadFeatureAsGeoJson(feature) {
@@ -419,6 +450,7 @@ function trackPopupHtml(props) {
   html += `Karja suurus: ${props.pack_size ?? "—"}<br>`;
   if (props.geom_type === "line") html += `Suund: ${escapeHtml(dir ? dir.label : "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
+  if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
   return html;
 }
 
