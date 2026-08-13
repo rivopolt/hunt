@@ -844,3 +844,5 @@ html, body {
   border-bottom: 12px solid currentColor;
   transform-origin: 50% 50%;
 }
+
+.hundilipudBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }

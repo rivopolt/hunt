@@ -12,6 +12,9 @@ Leaflet.js + Maa-amet/PRIA taustaga, ilma serveripoolse koodita
 - **Ulukite jäljed** — registreeri Hunt/Ilves/Koer jälgi kaardil punkti või
   joonena (koos suunanooltega), koos kuupäeva/karja suuruse/märkustega;
   filtreeritav liigi ja kuupäevavahemiku järgi
+- **Hundilipud** — joonista hundilippude liin kaardile (punane katkendlik
+  joon), sama git-põhine salvestusmuster, oma andmefail
+  `data/hundilipud_all.geojson`
 - **Minu kaardid** — oma KML/KMZ/SHP failide kuvamine
 - **Väliandmed** — Google Sheets / repo CSV-XLSX liitmine kaardikihtidega
 

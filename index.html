@@ -87,6 +87,27 @@
         </div>
       </section>
 
+      <!-- HUNDILIPUD -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-hundilipud" title="Ahenda/laienda">▾</button>
+          <h2>Hundilipud
+            <button class="infoIconBtn small" data-info="hundilipudInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-hundilipud">
+          <div class="layerRow">
+            <label>
+              <input type="checkbox" id="hundilipudVisibleToggle" checked>
+              <span>Näita hundilippude liine</span>
+            </label>
+          </div>
+          <button id="hundilipudLoadBtn" class="wideBtn secondaryBtn">↻ Lae liinid</button>
+          <div id="hundilipudStatus" class="statusLine"></div>
+          <div id="hundilipudCount" class="statusLine"></div>
+        </div>
+      </section>
+
       <!-- PRIA WFS -->
       <section class="ctrlSection">
         <div class="sectionHeaderRow">
@@ -228,6 +249,7 @@
         <button id="quickFotoBtn" class="mapQuickBtn" data-layer-id="maaamet_foto">Ortofoto</button>
         <button id="mapSearchToggleBtn" class="mapQuickBtn">🔍 Otsi objekti</button>
         <button id="trackRegisterToggleBtn" class="mapQuickBtn trackRegisterBtn">🐾 Registreeri jälg</button>
+        <button id="hundilipudToggleBtn" class="mapQuickBtn hundilipudBtn">🚩 Hundilipud</button>
       </div>
 
       <div id="mapSearchWidget" class="mapSearchWidget hidden">
@@ -289,6 +311,38 @@
 
         <div id="trackSaveStatus" class="statusLine"></div>
       </div>
+
+      <div id="hundilipudWidget" class="mapSearchWidget hidden">
+        <div class="mapSearchWidgetHeader">
+          <span>Hundilipud</span>
+          <button id="hundilipudCloseBtn" class="smallIconBtn" title="Sulge">✕</button>
+        </div>
+
+        <p class="smallNote">Joonista hundilippude liin kaardile — kuvatakse punase
+        katkendliku joonena.</p>
+
+        <label class="smallLabel" for="hundilipudDateInput">Kuupäev:</label>
+        <input type="date" id="hundilipudDateInput">
+
+        <label class="smallLabel" for="hundilipudRegistrantSelect">Registreerija:</label>
+        <select id="hundilipudRegistrantSelect"></select>
+        <input type="text" id="hundilipudRegistrantOtherInput" class="hidden" placeholder="Initsiaalid" maxlength="10">
+
+        <label class="smallLabel" for="hundilipudRemarksInput">Märkused:</label>
+        <textarea id="hundilipudRemarksInput" rows="2" placeholder="Vabas vormis lisainfo..."></textarea>
+
+        <button id="hundilipudDrawStartBtn" class="wideBtn">✏️ Alusta joonistamist kaardil</button>
+        <p id="hundilipudDrawHint" class="smallNote hidden"></p>
+
+        <div class="rowWithBtn">
+          <button id="hundilipudFinishBtn" class="smallIconBtn hidden" title="Lõpeta joon" disabled>✔</button>
+          <button id="hundilipudCancelDrawBtn" class="smallIconBtn hidden" title="Tühista joonistus">✕</button>
+        </div>
+
+        <button id="hundilipudSaveBtn" class="wideBtn" disabled>💾 Salvesta liin</button>
+
+        <div id="hundilipudSaveStatus" class="statusLine"></div>
+      </div>
     </div>
 
     <button id="mapLocateBtn" class="mapLocateBtn" title="Minu asukoht">📍</button>
@@ -329,6 +383,16 @@ faili allalaadimise.</p>
 registreeringud ei lähe git-is omavahel konflikti.</p>
 <p><strong>Filtreerimine:</strong> vasakul paneelil "Ulukite jäljed" all saab jälgi
 näidata/peita looma liigi ja kuupäevavahemiku järgi — sobib lihtsaks analüüsiks.</p></template>
+
+<template id="tpl-hundilipudInfo"><h3>Hundilipud</h3>
+<p>Vajuta kaardil nuppu <strong>"🚩 Hundilipud"</strong>, täida vorm ja vajuta
+"✏️ Alusta joonistamist kaardil". Klõpsa kaardile lippude liini punktide
+lisamiseks ja vajuta "✔", kui liin on valmis (vähemalt 2 punkti). Liin
+kuvatakse alati punase katkendliku joonena, sõltumata teistest valikutest.</p>
+<p>Salvestamine töötab täpselt samamoodi nagu ulukite jälgede puhul: fail
+laetakse alla ja tuleb lisada repositooriumis kausta <code>data/hundilipud/</code>
+ning teha <code>git push</code> — GitHub Action liidab kõik selle kausta failid
+automaatselt üheks failiks <code>data/hundilipud_all.geojson</code>.</p></template>
 
 <template id="tpl-priaInfo"><h3>PRIA põllumassiivid</h3>
 <p>Vajuta "↻ Lae kihtide loend", et tuua PRIA WFS-teenusest saadaolevad kihid.

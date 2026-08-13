@@ -25,6 +25,13 @@ let tracksData = [];              // [{feature, group}] for the loaded (merged) 
 let trackDrawState = null;        // null | { type: "point"|"line", points: [latlng,...] }
 let trackPreviewLayers = [];      // live preview shown while drawing
 
+/* ---- Hundilipud (wolf-scaring flag lines) ---- */
+let hundilipudLayerGroup = null;
+let hundilipudSessionGroup = null;
+let hundilipudData = [];
+let hundilipudDrawState = null;   // null | { points: [latlng,...] }
+let hundilipudPreviewLayers = [];
+
 /* ---- Väliandmed (Google Sheets / repo-fail join) ---- */
 const sheetState = {
   source: "google",
@@ -63,6 +70,7 @@ function init() {
   setupBaseLayerUI();
   setupCollapseToggles();
   setupTracks();
+  setupHundilipud();
   setupPria();
   setupFileUpload();
   setupMyFilesBrowser();
@@ -256,6 +264,8 @@ function toggleTrackRegisterWidget() {
   const widget = document.getElementById("trackRegisterWidget");
   const opening = widget.classList.contains("hidden");
   document.getElementById("mapSearchWidget").classList.add("hidden");
+  document.getElementById("mapSearchToggleBtn").classList.remove("active");
+  closeHundilipudWidget();
   widget.classList.toggle("hidden", !opening);
   document.getElementById("trackRegisterToggleBtn").classList.toggle("active", opening);
   if (!opening) cancelTrackDrawing();
@@ -550,6 +560,241 @@ function applyTracksFilter() {
   });
 
   document.getElementById("tracksCount").textContent = `Näidatud: ${visibleCount} / ${tracksData.length}`;
+}
+
+/* ---------------------------------------------------------------------- */
+/* HUNDILIPUD (wolf-scaring flag lines) — always a red dashed line          */
+/* ---------------------------------------------------------------------- */
+function setupHundilipud() {
+  hundilipudLayerGroup = L.layerGroup().addTo(map);
+  hundilipudSessionGroup = L.layerGroup().addTo(map);
+
+  const registrantSelect = document.getElementById("hundilipudRegistrantSelect");
+  CONFIG.hundilipud.registrants.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r;
+    opt.textContent = r;
+    registrantSelect.appendChild(opt);
+  });
+  const otherOpt = document.createElement("option");
+  otherOpt.value = "other";
+  otherOpt.textContent = "Muu...";
+  registrantSelect.appendChild(otherOpt);
+  registrantSelect.addEventListener("change", () => {
+    document.getElementById("hundilipudRegistrantOtherInput").classList.toggle("hidden", registrantSelect.value !== "other");
+  });
+
+  document.getElementById("hundilipudDateInput").value = todayIsoDate();
+
+  document.getElementById("hundilipudToggleBtn").addEventListener("click", toggleHundilipudWidget);
+  document.getElementById("hundilipudCloseBtn").addEventListener("click", closeHundilipudWidget);
+  document.getElementById("hundilipudDrawStartBtn").addEventListener("click", startHundilipudDrawing);
+  document.getElementById("hundilipudFinishBtn").addEventListener("click", finishHundilipudDrawing);
+  document.getElementById("hundilipudCancelDrawBtn").addEventListener("click", cancelHundilipudDrawing);
+  document.getElementById("hundilipudSaveBtn").addEventListener("click", saveHundilipud);
+  document.getElementById("hundilipudLoadBtn").addEventListener("click", loadHundilipudData);
+  document.getElementById("hundilipudVisibleToggle").addEventListener("change", (e) => {
+    if (e.target.checked) { map.addLayer(hundilipudLayerGroup); map.addLayer(hundilipudSessionGroup); }
+    else { map.removeLayer(hundilipudLayerGroup); map.removeLayer(hundilipudSessionGroup); }
+  });
+
+  restoreHundilipudSessionDrafts();
+  loadHundilipudData();
+}
+
+/* ---- Widget open/close (mutually exclusive with the other two) ---- */
+function toggleHundilipudWidget() {
+  const widget = document.getElementById("hundilipudWidget");
+  const opening = widget.classList.contains("hidden");
+  document.getElementById("mapSearchWidget").classList.add("hidden");
+  document.getElementById("mapSearchToggleBtn").classList.remove("active");
+  closeTrackRegisterWidget();
+  widget.classList.toggle("hidden", !opening);
+  document.getElementById("hundilipudToggleBtn").classList.toggle("active", opening);
+  if (!opening) cancelHundilipudDrawing();
+}
+
+function closeHundilipudWidget() {
+  document.getElementById("hundilipudWidget").classList.add("hidden");
+  document.getElementById("hundilipudToggleBtn").classList.remove("active");
+  cancelHundilipudDrawing();
+}
+
+/* ---- Drawing (line only, finished via explicit button — see track
+   drawing comment above for why not dblclick) ---- */
+function startHundilipudDrawing() {
+  cancelHundilipudDrawing();
+  hundilipudDrawState = { points: [] };
+  document.getElementById("map").classList.add("map-drawing-cursor");
+  map.on("click", handleHundilipudDrawClick);
+
+  const hint = document.getElementById("hundilipudDrawHint");
+  hint.classList.remove("hidden");
+  hint.textContent = "Klõpsa kaardil, et lisada liinile punkte. Kui oled valmis (vähemalt 2 punkti), vajuta \"✔\".";
+  document.getElementById("hundilipudCancelDrawBtn").classList.remove("hidden");
+  document.getElementById("hundilipudSaveBtn").disabled = true;
+
+  const finishBtn = document.getElementById("hundilipudFinishBtn");
+  finishBtn.classList.remove("hidden");
+  finishBtn.disabled = true;
+}
+
+function handleHundilipudDrawClick(e) {
+  if (!hundilipudDrawState) return;
+  hundilipudDrawState.points.push(e.latlng);
+  redrawHundilipudPreview();
+  document.getElementById("hundilipudFinishBtn").disabled = hundilipudDrawState.points.length < 2;
+}
+
+function finishHundilipudDrawing() {
+  if (!hundilipudDrawState || hundilipudDrawState.points.length < 2) {
+    notify("Liini jaoks on vaja vähemalt 2 punkti.");
+    return;
+  }
+  map.off("click", handleHundilipudDrawClick);
+  document.getElementById("map").classList.remove("map-drawing-cursor");
+  document.getElementById("hundilipudDrawHint").textContent = "Valmis — kontrolli vormi ja vajuta \"💾 Salvesta liin\".";
+  document.getElementById("hundilipudFinishBtn").classList.add("hidden");
+  document.getElementById("hundilipudSaveBtn").disabled = false;
+}
+
+function cancelHundilipudDrawing() {
+  map.off("click", handleHundilipudDrawClick);
+  document.getElementById("map").classList.remove("map-drawing-cursor");
+  hundilipudPreviewLayers.forEach(l => map.removeLayer(l));
+  hundilipudPreviewLayers = [];
+  hundilipudDrawState = null;
+  document.getElementById("hundilipudDrawHint").classList.add("hidden");
+  document.getElementById("hundilipudCancelDrawBtn").classList.add("hidden");
+  document.getElementById("hundilipudFinishBtn").classList.add("hidden");
+  document.getElementById("hundilipudSaveBtn").disabled = true;
+}
+
+function redrawHundilipudPreview() {
+  hundilipudPreviewLayers.forEach(l => map.removeLayer(l));
+  hundilipudPreviewLayers = [];
+  const pts = hundilipudDrawState.points;
+  pts.forEach(p => hundilipudPreviewLayers.push(L.circleMarker(p, { radius: 4, color: CONFIG.hundilipud.color, weight: 2, fillOpacity: 0.9 }).addTo(map)));
+  if (pts.length >= 2) {
+    hundilipudPreviewLayers.push(L.polyline(pts, {
+      color: CONFIG.hundilipud.color, weight: 3, dashArray: CONFIG.hundilipud.dashArray
+    }).addTo(map));
+  }
+}
+
+/* ---- Save (build GeoJSON feature, render, buffer, download) ---- */
+function saveHundilipud() {
+  if (!hundilipudDrawState || hundilipudDrawState.points.length < 2) {
+    notify("Kõigepealt joonista hundilippude liin kaardile.");
+    return;
+  }
+
+  const date = document.getElementById("hundilipudDateInput").value || todayIsoDate();
+  const remarks = document.getElementById("hundilipudRemarksInput").value.trim();
+  const registrantSelectVal = document.getElementById("hundilipudRegistrantSelect").value;
+  const registrant = registrantSelectVal === "other"
+    ? document.getElementById("hundilipudRegistrantOtherInput").value.trim()
+    : registrantSelectVal;
+
+  const coords = hundilipudDrawState.points.map(p => [p.lng, p.lat]);
+  const feature = {
+    type: "Feature",
+    geometry: { type: "LineString", coordinates: coords },
+    properties: {
+      feature_type: "hundilipud",
+      date,
+      remarks,
+      registrant,
+      registered_at: new Date().toISOString()
+    }
+  };
+
+  const group = renderHundilipudFeature(feature);
+  group.addTo(hundilipudSessionGroup);
+
+  const drafts = getHundilipudSessionDrafts();
+  drafts.push(feature);
+  localStorage.setItem("hundilipudSessionDrafts", JSON.stringify(drafts));
+
+  downloadHundilipudFeature(feature);
+
+  document.getElementById("hundilipudSaveStatus").textContent =
+    "Fail allalaaditud. Lisa see kausta data/hundilipud/ ja tee git push, et see kõigile jäädavalt kaardile jääks (vt ⓘ).";
+
+  cancelHundilipudDrawing();
+  document.getElementById("hundilipudRemarksInput").value = "";
+}
+
+function downloadHundilipudFeature(feature) {
+  const p = feature.properties;
+  const safeDate = (p.date || todayIsoDate()).replace(/[^0-9-]/g, "");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `hundilipud_${safeDate}_${stamp}.geojson`;
+  const blob = new Blob([JSON.stringify(feature, null, 2)], { type: "application/geo+json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getHundilipudSessionDrafts() {
+  try { return JSON.parse(localStorage.getItem("hundilipudSessionDrafts") || "[]"); }
+  catch (e) { return []; }
+}
+
+function restoreHundilipudSessionDrafts() {
+  getHundilipudSessionDrafts().forEach(feature => renderHundilipudFeature(feature).addTo(hundilipudSessionGroup));
+}
+
+/* ---- Rendering (shared by loaded dataset + session drafts) ---- */
+function hundilipudPopupHtml(props) {
+  let html = `<strong>Hundilipud</strong><br>`;
+  html += `Kuupäev: ${escapeHtml(props.date || "—")}<br>`;
+  if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
+  if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
+  return html;
+}
+
+function renderHundilipudFeature(feature) {
+  const latlngs = feature.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+  const line = L.polyline(latlngs, {
+    color: CONFIG.hundilipud.color,
+    weight: 4,
+    opacity: 0.9,
+    dashArray: CONFIG.hundilipud.dashArray
+  });
+  const group = L.featureGroup([line]);
+  group.bindPopup(hundilipudPopupHtml(feature.properties || {}));
+  return group;
+}
+
+/* ---- Loading the merged dataset ---- */
+function loadHundilipudData() {
+  const statusEl = document.getElementById("hundilipudStatus");
+  statusEl.textContent = "Laen...";
+  fetch(`${CONFIG.hundilipud.dataUrl}?_=${Date.now()}`)
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(geojson => {
+      hundilipudLayerGroup.clearLayers();
+      hundilipudData = (geojson.features || []).map(feature => ({
+        feature,
+        group: renderHundilipudFeature(feature)
+      }));
+      hundilipudData.forEach(entry => hundilipudLayerGroup.addLayer(entry.group));
+      statusEl.textContent = `Laetud (${hundilipudData.length}).`;
+      document.getElementById("hundilipudCount").textContent = `Kokku: ${hundilipudData.length}`;
+    })
+    .catch(err => {
+      statusEl.textContent = "Ei õnnestunud laadida.";
+      console.warn("loadHundilipudData failed:", err);
+    });
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1711,7 +1956,7 @@ function toggleSearchWidget() {
   const widget = document.getElementById("mapSearchWidget");
   const nowHidden = widget.classList.toggle("hidden");
   document.getElementById("mapSearchToggleBtn").classList.toggle("active", !nowHidden);
-  if (!nowHidden) closeTrackRegisterWidget();
+  if (!nowHidden) { closeTrackRegisterWidget(); closeHundilipudWidget(); }
 }
 
 function closeSearchWidget() {

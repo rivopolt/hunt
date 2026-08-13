@@ -65,6 +65,21 @@ const CONFIG = {
   },
 
   /* ------------------------------------------------------------------
+     HUNDILIPUD (wolf-scaring flag lines)
+     ------------------------------------------------------------------
+     Same git-based persistence pattern as tracks above, but its own
+     folder/merged file since it isn't a wildlife-track registration —
+     always rendered as a plain red dashed line, no species/direction.
+  ------------------------------------------------------------------- */
+  hundilipud: {
+    folder: "data/hundilipud/",
+    dataUrl: "data/hundilipud_all.geojson",
+    color: "#c62828",
+    dashArray: "10,7",
+    registrants: ["RP", "OP", "JL", "AV"]
+  },
+
+  /* ------------------------------------------------------------------
      PRIA WFS (põllumassiivid)
      ------------------------------------------------------------------
      Kihtide loend tuuakse dünaamiliselt WFS GetCapabilities päringust.
