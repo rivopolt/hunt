@@ -37,19 +37,24 @@ const CONFIG = {
   ],
 
   /* ------------------------------------------------------------------
-     ULUKITE JÄLJED (wildlife track registrations)
+     ÜHINE ANDMESTIK: ulukite jäljed + hundilipud
      ------------------------------------------------------------------
-     Same git-based persistence pattern as "Minu kaardid" below: a
-     registration drawn on the map downloads as one small .geojson file,
-     which gets dropped into data/registrations/ and pushed. A GitHub
-     Action then merges every file in that folder into the single
-     dataUrl file below, which is what the app actually loads on
-     startup. One file per registration avoids merge conflicts when
-     several people add tracks around the same time.
+     ÜKS jagatud fail serveris, mida kõik seadmed loevad JA kirjutavad —
+     ei looda ühtegi kohalikku faili. Lugemine käib otse GitHub Pages'i
+     staatilise faili pealt (dataUrl). Kirjutamine (uue jälje/liini
+     salvestamine) käib väikese Cloudflare Worker API kaudu (apiUrl),
+     mis lisab kirje otse GitHubi repositooriumi faili GitHubi API abil
+     — GitHub Pages ise ei toeta kirjutamist, staatiline sait ei saa
+     iseennast muuta ilma sellise väikese vahepealse teenuseta.
+
+     apiUrl TULEB ISE SEADISTADA pärast Cloudflare Workeri deploy'mist
+     (vt README.md "Serveripoolne salvestamine" jaotist). Kuni see on
+     tühi, näitab rakendus salvestamisel selget veateadet.
   ------------------------------------------------------------------- */
+  dataUrl: "data/registrations_all.geojson",
+  apiUrl: "",  // nt "https://jaljed-api.SINU-NIMI.workers.dev"
+
   tracks: {
-    folder: "data/registrations/",
-    dataUrl: "data/registrations_all.geojson",
     species: [
       { id: "hunt", label: "Hunt", color: "#8b0000" },
       { id: "ilves", label: "Ilves", color: "#d2691e" },
@@ -64,20 +69,20 @@ const CONFIG = {
     registrants: ["RP", "OP", "JL", "AV"]
   },
 
-  /* ------------------------------------------------------------------
-     HUNDILIPUD (wolf-scaring flag lines)
-     ------------------------------------------------------------------
-     Same git-based persistence pattern as tracks above, but its own
-     folder/merged file since it isn't a wildlife-track registration —
-     always rendered as a plain red dashed line, no species/direction.
-  ------------------------------------------------------------------- */
   hundilipud: {
-    folder: "data/hundilipud/",
-    dataUrl: "data/hundilipud_all.geojson",
     color: "#c62828",
     dashArray: "10,7",
     registrants: ["RP", "OP", "JL", "AV"]
   },
+
+  /* ------------------------------------------------------------------
+     GRUPID (nähtavuse piiramine)
+     ------------------------------------------------------------------
+     Iga jälg/liin salvestatakse koos looja grupikoodiga. Kasutaja näeb
+     vaikimisi ainult oma grupi kirjeid. Administraatorigrupp näeb kõike,
+     piiranguteta — mõeldud omanikule/haldajale, mitte tavakasutuseks.
+  ------------------------------------------------------------------- */
+  adminGroupCode: "1312",
 
   /* ------------------------------------------------------------------
      PRIA WFS (põllumassiivid)

@@ -262,6 +262,12 @@ html, body {
   border-radius: 8px;
   padding: 10px 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  /* On short/mobile screens the panel (esp. "Registreeri jälg", which has
+     many fields) can be taller than the viewport, hiding the Save button
+     below the fold. Cap the height and let the panel itself scroll. */
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .mapSearchWidgetHeader {
   display: flex;
@@ -283,10 +289,12 @@ html, body {
 
 /* Small standalone "my location" button directly on the map, positioned
    so the Leaflet zoom control (also bottom-right, see below) stacks
-   directly above it — both reachable with a thumb on mobile. */
+   directly above it — both reachable with a thumb on mobile. Moved up
+   from the very bottom edge so it stays clear of phone gesture bars /
+   home indicators, and sits close under the zoom control. */
 .mapLocateBtn {
   position: absolute;
-  bottom: 36px;
+  bottom: 56px;
   right: 10px;
   z-index: 800;
   width: 40px;
@@ -301,11 +309,18 @@ html, body {
 .mapLocateBtn:hover { background: #eef4ff; }
 .mapLocateBtn.active { background: var(--accent); filter: brightness(1.1); }
 
-/* Leaflet's own zoom +/- control, moved to bottom-right and pushed up
-   so it sits just above the "📍 Minu asukoht" button (40px tall,
-   bottom: 36px) instead of overlapping it. */
+/* Leaflet's own zoom +/- control, moved to bottom-right, pushed up half
+   a button-size further than before, and resized to match the width of
+   the "📍 Minu asukoht" pin below it. */
 .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-  margin: 0 10px 86px 0;
+  margin: 0 10px 106px 0;
+}
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  font-size: 20px;
 }
 
 /* -------- User location "blue dot" (Google-Maps style) -------- */
@@ -846,3 +861,85 @@ html, body {
 }
 
 .hundilipudBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ==========================================================================
+   GRUPI VALIK (startup gate)
+   ========================================================================== */
+.groupGateOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.groupGateBox {
+  position: relative;
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 22px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.groupGateBox h2 { margin: 0 0 10px; font-size: 18px; }
+.groupGateBox .wideBtn { margin-bottom: 10px; }
+.groupGateBox #groupGateCloseBtn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.groupGateBox input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  font-size: 20px;
+  letter-spacing: 4px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 10px 0;
+}
+.groupGateCodeDisplay {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  text-align: center;
+  color: var(--accent);
+  margin: 14px 0;
+}
+
+.groupBadgeBtn {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.groupBadgeBtn:hover { background: #eef4ff; }
+
+/* ==========================================================================
+   KIIRFILTRID (Täna / Eile / Nädal / Kõik)
+   ========================================================================== */
+.quickFilterRow {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.quickFilterBtn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.quickFilterBtn:hover { background: #eef4ff; }
+.quickFilterBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }

@@ -42,6 +42,39 @@
 </head>
 <body>
 
+<!-- GRUPI VALIK: käivitusdialoog, piirab kes näeb milliseid jälgi/liine -->
+<div id="groupGateOverlay" class="groupGateOverlay hidden">
+  <div class="groupGateBox">
+    <button id="groupGateCloseBtn" class="smallIconBtn hidden" title="Sulge">✕</button>
+
+    <div id="groupGateStepChoose" class="groupGateStep">
+      <h2>Tere tulemast!</h2>
+      <p class="smallNote">Jäljed ja hundilipud on nähtavad ainult sinu enda grupi
+      liikmetele. Alusta uut gruppi või liitu olemasolevaga.</p>
+      <button id="groupGateStartBtn" class="wideBtn">➕ Alusta gruppi</button>
+      <button id="groupGateJoinShowBtn" class="wideBtn secondaryBtn">🔑 Liitu grupiga</button>
+    </div>
+
+    <div id="groupGateStepCreated" class="groupGateStep hidden">
+      <h2>Grupp loodud</h2>
+      <p class="smallNote">Sinu grupi kood on:</p>
+      <div id="groupGateNewCode" class="groupGateCodeDisplay"></div>
+      <p class="smallNote">Jaga seda koodi oma grupi liikmetega — nemad saavad
+      sisestada selle "Liitu grupiga" all, et näha samu jälgi ja liine.</p>
+      <button id="groupGateCreatedContinueBtn" class="wideBtn">Jätka</button>
+    </div>
+
+    <div id="groupGateStepJoin" class="groupGateStep hidden">
+      <h2>Liitu grupiga</h2>
+      <label class="smallLabel" for="groupGateCodeInput">Sisesta 4-kohaline grupikood:</label>
+      <input type="text" id="groupGateCodeInput" inputmode="numeric" maxlength="4" placeholder="nt 4821">
+      <div id="groupGateJoinError" class="statusLine hidden"></div>
+      <button id="groupGateJoinConfirmBtn" class="wideBtn">Liitu</button>
+      <button id="groupGateJoinBackBtn" class="linkBtn">← Tagasi</button>
+    </div>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- LEFT PANEL: layer control -->
@@ -49,16 +82,11 @@
     <div class="panelHeader">
       <button id="panelToggleBtn" title="Peida/näita paneel">☰</button>
       <h1>Kihid</h1>
+      <button id="groupBadgeBtn" class="groupBadgeBtn" title="Vaheta gruppi">Grupp: —</button>
       <button id="appInfoBtn" class="infoIconBtn" title="Rakenduse info">ⓘ</button>
     </div>
 
     <div class="panelBody">
-
-      <!-- SEARCH / LOCATE (not a layer section, stays above everything) -->
-      <section class="ctrlSection noCollapse">
-        <button id="locateBtn" class="wideBtn">📍 Minu asukoht</button>
-        <button id="fitEstoniaBtn" class="wideBtn">🇪🇪 Kogu Eesti</button>
-      </section>
 
       <!-- ULUKITE JÄLJED -->
       <section class="ctrlSection">
@@ -77,6 +105,12 @@
           <div id="tracksSpeciesFilter" class="layerList"></div>
 
           <p class="smallLabel">Kuupäevavahemik:</p>
+          <div class="quickFilterRow">
+            <button class="quickFilterBtn" data-target="tracks" data-range="today">Täna</button>
+            <button class="quickFilterBtn" data-target="tracks" data-range="yesterday">Eile</button>
+            <button class="quickFilterBtn" data-target="tracks" data-range="week">Nädal</button>
+            <button class="quickFilterBtn" data-target="tracks" data-range="all">Kõik</button>
+          </div>
           <div class="trackDateRange">
             <input type="date" id="tracksDateFrom">
             <span>—</span>
@@ -96,14 +130,22 @@
           </h2>
         </div>
         <div class="sectionBody" id="body-hundilipud">
-          <div class="layerRow">
-            <label>
-              <input type="checkbox" id="hundilipudVisibleToggle" checked>
-              <span>Näita hundilippude liine</span>
-            </label>
-          </div>
           <button id="hundilipudLoadBtn" class="wideBtn secondaryBtn">↻ Lae liinid</button>
           <div id="hundilipudStatus" class="statusLine"></div>
+
+          <p class="smallLabel">Kuupäevavahemik:</p>
+          <div class="quickFilterRow">
+            <button class="quickFilterBtn" data-target="hundilipud" data-range="today">Täna</button>
+            <button class="quickFilterBtn" data-target="hundilipud" data-range="yesterday">Eile</button>
+            <button class="quickFilterBtn" data-target="hundilipud" data-range="week">Nädal</button>
+            <button class="quickFilterBtn" data-target="hundilipud" data-range="all">Kõik</button>
+          </div>
+          <div class="trackDateRange">
+            <input type="date" id="hundilipudDateFrom">
+            <span>—</span>
+            <input type="date" id="hundilipudDateTo">
+          </div>
+
           <div id="hundilipudCount" class="statusLine"></div>
         </div>
       </section>
@@ -173,68 +215,6 @@
       </section>
 
       <!-- Live field-data join (Google Sheets or a repo-committed CSV/XLSX) -->
-      <section class="ctrlSection">
-        <div class="sectionHeaderRow">
-          <button class="collapseBtn" data-target="body-sheets" title="Ahenda/laienda">▾</button>
-          <h2>Väliandmed (Sheets / repo-fail)
-            <button class="infoIconBtn small" data-info="sheetsInfo">ⓘ</button>
-          </h2>
-        </div>
-        <div class="sectionBody" id="body-sheets">
-
-          <div class="sourceToggle">
-            <label><input type="radio" name="sheetSource" value="google" checked> Google Sheets</label>
-            <label><input type="radio" name="sheetSource" value="repofile"> Repo fail (CSV/XLSX)</label>
-          </div>
-
-          <div id="googleSourceControls">
-            <label class="smallLabel" for="sheetUrlInput">Google Sheeti link või ID:</label>
-            <input type="text" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/...">
-            <button id="sheetLoadBtn" class="wideBtn secondaryBtn">↻ Loe Google Sheet</button>
-          </div>
-
-          <div id="repoFileSourceControls" class="hidden">
-            <label class="smallLabel" for="repoFileUrlInput">Faili tee SINU repositooriumis (mitte väline link!):</label>
-            <input type="text" id="repoFileUrlInput" placeholder="MyFiles/data/valiandmed.xlsx">
-            <button id="repoFileLoadBtn" class="wideBtn secondaryBtn">↻ Loe repo fail</button>
-            <div id="repoFileTabRow" class="hidden">
-              <label class="smallLabel" for="repoFileTabSelect">Tööleht (tab):</label>
-              <select id="repoFileTabSelect"></select>
-            </div>
-          </div>
-
-          <div id="sheetStatus" class="statusLine"></div>
-
-          <div id="sheetJoinControls" class="hidden">
-            <label class="smallLabel" for="sheetKeyColumnSelect">Objekti nime veerg:</label>
-            <select id="sheetKeyColumnSelect"></select>
-
-            <div class="rowWithBtn">
-              <div class="rowWithBtnField">
-                <label class="smallLabel" for="sheetTargetLayerSelect">Kaardikiht, millega siduda:</label>
-                <select id="sheetTargetLayerSelect"></select>
-              </div>
-              <button id="sheetRefreshTargetsBtn" class="smallIconBtn" title="Uuenda kihtide loendit">↻</button>
-            </div>
-
-            <label class="smallLabel" for="sheetTargetFieldSelect">Kihi väli, mis vastab objekti nimele:</label>
-            <select id="sheetTargetFieldSelect"></select>
-
-            <button id="sheetJoinBtn" class="wideBtn">🔗 Ühenda andmed</button>
-
-            <label class="smallLabel" for="sheetAutoRefreshSelect">Automaatne värskendus:</label>
-            <select id="sheetAutoRefreshSelect">
-              <option value="0">Väljas</option>
-              <option value="30000">30 sekundit</option>
-              <option value="60000">1 minut</option>
-              <option value="300000">5 minutit</option>
-            </select>
-
-            <div id="sheetJoinStatus" class="statusLine"></div>
-          </div>
-        </div>
-      </section>
-
     </div>
   </aside>
 
@@ -247,24 +227,8 @@
       <div class="mapQuickBaseButtons">
         <button id="quickKaartBtn" class="mapQuickBtn" data-layer-id="maaamet_kaart">Põhikaart</button>
         <button id="quickFotoBtn" class="mapQuickBtn" data-layer-id="maaamet_foto">Ortofoto</button>
-        <button id="mapSearchToggleBtn" class="mapQuickBtn">🔍 Otsi objekti</button>
         <button id="trackRegisterToggleBtn" class="mapQuickBtn trackRegisterBtn">🐾 Registreeri jälg</button>
         <button id="hundilipudToggleBtn" class="mapQuickBtn hundilipudBtn">🚩 Hundilipud</button>
-      </div>
-
-      <div id="mapSearchWidget" class="mapSearchWidget hidden">
-        <div class="mapSearchWidgetHeader">
-          <span>Otsi objekti</span>
-          <button id="searchCloseBtn" class="smallIconBtn" title="Sulge otsing">✕</button>
-        </div>
-        <label class="smallLabel" for="searchLayerSelect">Kiht:</label>
-        <select id="searchLayerSelect"></select>
-        <label class="smallLabel" for="searchFieldSelect">Väli (nt nimi või kood):</label>
-        <select id="searchFieldSelect"></select>
-        <input type="text" id="searchTextInput" placeholder="Otsi väärtust...">
-        <button id="searchGoBtn" class="wideBtn secondaryBtn">🔍 Otsi</button>
-        <div id="searchStatus" class="statusLine"></div>
-        <div id="searchResult" class="searchResultBox hidden"></div>
       </div>
 
       <div id="trackRegisterWidget" class="mapSearchWidget hidden">
@@ -366,33 +330,28 @@
 <template id="tpl-tracksInfo"><h3>Ulukite jäljed</h3>
 <p>Vajuta kaardil nuppu <strong>"🐾 Registreeri jälg"</strong>, täida vorm ja vajuta
 "✏️ Alusta joonistamist kaardil". <strong>Punkti</strong> puhul lisab üks klõps kaardile
-kohe punkti. <strong>Joone</strong> puhul lisab iga klõps ühe punkti joonele — lõpeta
-topeltklõpsuga. Kui olete valinud suuna (nool alguses/lõpus/mõlemas otsas), joonistatakse
-see kohe pärast salvestamist joonele.</p>
-<p><strong>Ajutine eelvaade:</strong> "💾 Salvesta jälg" näitab jälge kaardil kohe, aga
-ainult sinu enda praeguses brauseris/seansis, ja käivitab ühe väikese <code>.geojson</code>
-faili allalaadimise.</p>
-<p><strong>Jäädav, kõigile nähtav lisamine:</strong></p>
-<ol>
-<li>Lisa allalaaditud fail repositooriumis kausta <code>data/registrations/</code>.</li>
-<li>Tee <code>git push</code> (nt otse GitHubi veebiliideses "Add file" → "Upload files").</li>
-<li>GitHub Action liidab kõik selle kausta failid automaatselt üheks failiks
-<code>data/registrations_all.geojson</code> — pärast seda ilmub jälg kõigile automaatselt.</li>
-</ol>
-<p class="smallNote">Iga jälg on eraldi fail, nii et mitme inimese samaaegsed
-registreeringud ei lähe git-is omavahel konflikti.</p>
-<p><strong>Filtreerimine:</strong> vasakul paneelil "Ulukite jäljed" all saab jälgi
-näidata/peita looma liigi ja kuupäevavahemiku järgi — sobib lihtsaks analüüsiks.</p></template>
+kohe punkti. <strong>Joone</strong> puhul lisab iga klõps ühe punkti joonele — vajuta
+"✔", kui liin on valmis (vähemalt 2 punkti). Kui olete valinud suuna (nool
+alguses/lõpus/mõlemas otsas), joonistatakse see kohe pärast salvestamist joonele.</p>
+<p><strong>Salvestamine:</strong> "💾 Salvesta jälg" saadab kirje otse serverisse —
+ühtegi faili ei looda sinu seadmesse. Kõik sama grupi liikmed näevad uut jälge
+kohe (mõne sekundi jooksul, kui keegi laeb lehe uuesti või vajutab "↻ Lae jäljed").</p>
+<p><strong>Nähtavus (grupid):</strong> näed ainult oma grupi jälgi. Grupi saab
+vahetada ülal paneeli päises oleva "Grupp: XXXX" nupu kaudu.</p>
+<p><strong>Filtreerimine:</strong> vaikimisi näidatakse ainult <strong>tänast</strong>
+päeva. Kasuta kiirnuppe "Täna / Eile / Nädal / Kõik" või kuupäevavälju otse, ja
+looma liigi järgi märkeruute — sobib ka lihtsaks analüüsiks.</p></template>
 
 <template id="tpl-hundilipudInfo"><h3>Hundilipud</h3>
 <p>Vajuta kaardil nuppu <strong>"🚩 Hundilipud"</strong>, täida vorm ja vajuta
 "✏️ Alusta joonistamist kaardil". Klõpsa kaardile lippude liini punktide
 lisamiseks ja vajuta "✔", kui liin on valmis (vähemalt 2 punkti). Liin
 kuvatakse alati punase katkendliku joonena, sõltumata teistest valikutest.</p>
-<p>Salvestamine töötab täpselt samamoodi nagu ulukite jälgede puhul: fail
-laetakse alla ja tuleb lisada repositooriumis kausta <code>data/hundilipud/</code>
-ning teha <code>git push</code> — GitHub Action liidab kõik selle kausta failid
-automaatselt üheks failiks <code>data/hundilipud_all.geojson</code>.</p></template>
+<p><strong>Salvestamine ja nähtavus</strong> töötavad täpselt samamoodi nagu
+ulukite jälgede puhul: "💾 Salvesta liin" saadab kirje otse serverisse (ühtegi
+faili ei looda kohalikult), nähtav on ainult sinu enda grupi kirjed, ja
+vaikimisi kuvatakse ainult tänane päev — muuda kiirnuppude või
+kuupäevaväljadega.</p></template>
 
 <template id="tpl-priaInfo"><h3>PRIA põllumassiivid</h3>
 <p>Vajuta "↻ Lae kihtide loend", et tuua PRIA WFS-teenusest saadaolevad kihid.
@@ -435,41 +394,7 @@ eraldi valikud — vaikimisi on need sama värvi, kuni muudad kumbagi eraldi.
 "Transp." reguleerib nii täite kui joone läbipaistvust protsentides koos
 (0% = täiesti täidetud/nähtav, 100% = täiesti läbipaistev/nähtamatu).</p>
 <p><strong>Info ja sildid:</strong> klõpsa kaardil objektil, et näha kõiki
-selle andmevälju popup-aknas. Sildi väli valitakse kihi rea alt.</p>
-<p><strong>Otsing:</strong> otsingu leiad nüüd kaardi enda pealt, "🔍 Otsi objekti"
-nupu alt (paremal üleval, koos "Põhikaart"/"Ortofoto" kiirnuppudega) — vali kiht
-ja väli (nt nimi või kood), sisesta otsitav väärtus, ja leitud objektile suumitakse
-koos lingiga Google Mapsi juhisteks otse sellesse asukohta.</p></template>
-
-<template id="tpl-sheetsInfo"><h3>Väliandmed (Sheets / repo-fail)</h3>
-<p><strong>Andmeallikas ei pea sisaldama koordinaate.</strong> Selle asemel peab
-seal olema veerg, mis kordab sama objekti nime/identifikaatorit, mis on juba olemas
-mõne kaardil oleva kihi ühel andmeväljal. Rakendus otsib iga rea jaoks kaardilt
-vastava objekti nime järgi ja lisab kõik veerud selle objekti andmete külge.</p>
-
-<p><strong>Google Sheets (live, uueneb automaatselt):</strong></p>
-<ol>
-<li>Fail → Jaga → "Kõik, kellel link on" (vaataja).</li>
-<li>Kleebi link ja vajuta "↻ Loe Google Sheet".</li>
-</ol>
-<p class="smallNote">Sheeti loetakse JSONP kaudu (mitte tavaline fetch()), mis
-töötab otse brauserist ka puhtal staatilisel hostimisel nagu GitHub Pages —
-ei vaja mingit serverit ega proksit.</p>
-
-<p><strong>Repo fail — CSV/XLSX (nt OneDrive/Exceli eksport):</strong></p>
-<ol>
-<li>Ekspordi oma OneDrive'i/Exceli tabel <code>.xlsx</code> või <code>.csv</code>
-failina (Fail → Salvesta koopiana / Export).</li>
-<li>Lisa see fail oma repositooriumisse (nt kausta <code>MyFiles/data/</code>)
-ja tee git push.</li>
-<li>Sisesta rakenduses faili tee (nt <code>MyFiles/data/valiandmed.xlsx</code>)
-ja vajuta "↻ Loe repo fail".</li>
-</ol>
-<p class="smallNote">See ei ole "elus" OneDrive'iga samal sekundil — andmed
-uuenevad alles siis, kui ekspordid faili uuesti ja teed uue git push'i.
-Kuna GitHub Pages ei toeta serveripoolset koodi, ei ole otse OneDrive'ist
-reaalajas lugemine (CORS piirangute tõttu) selle hostimisviisi juures
-võimalik ilma eraldi backendita.</p></template>
+selle andmevälju popup-aknas. Sildi väli valitakse kihi rea alt.</p></template>
 
 <script src="js/config.js"></script>
 <script src="js/app.js"></script>

@@ -16,37 +16,29 @@ const priaLayersState = {};     // typeName -> { color, geo, loading }
 /* ---- Minu kaardid (uploaded + MyFiles layers) ---- */
 const myLayers = {};             // id -> entry (see addGeoJsonToMap for shape)
 let myLayerCounter = 0;
-let searchHighlightMarker = null;
 
-/* ---- Ulukite jäljed (wildlife track registrations) ---- */
-let tracksLayerGroup = null;      // master group added to the map
-let tracksSessionGroup = null;    // this-browser-only drafts, downloaded but maybe not yet pushed
-let tracksData = [];              // [{feature, group}] for the loaded (merged) dataset
-let trackDrawState = null;        // null | { type: "point"|"line", points: [latlng,...] }
-let trackPreviewLayers = [];      // live preview shown while drawing
+/* ---- Grupp (nähtavuse piiramine) ---- */
+let currentGroupCode = null;      // 4-kohaline string, valitakse käivitusdialoogis
+const ADMIN_GROUP_CODE = "1312";  // näeb kõigi gruppide andmeid, filtrit ei rakendata
 
-/* ---- Hundilipud (wolf-scaring flag lines) ---- */
+/* ---- Ulukite jäljed + Hundilipud: ÜKS jagatud andmestik serveris ----
+   data/registrations_all.geojson on ainus andmefail — kõik seadmed
+   loevad ja kirjutavad sama faili (kirjutamine käib väikese
+   Cloudflare Worker API kaudu, vt CONFIG.apiUrl). Midagi ei laadita
+   automaatselt kohalikku faili — "salvesta" saadab kirje otse
+   serverisse ja laeb kogu andmestiku kohe uuesti. */
+let sharedDataset = [];           // [{feature, kind: "track"|"hundilipud", group: L.featureGroup}]
+let tracksLayerGroup = null;      // kaardile lisatud/eemaldatud filtreerimise jaoks
 let hundilipudLayerGroup = null;
-let hundilipudSessionGroup = null;
-let hundilipudData = [];
+let trackDrawState = null;        // null | { type: "point"|"line", points: [latlng,...] }
+let trackPreviewLayers = [];
 let hundilipudDrawState = null;   // null | { points: [latlng,...] }
 let hundilipudPreviewLayers = [];
-
-/* ---- Väliandmed (Google Sheets / repo-fail join) ---- */
-const sheetState = {
-  source: "google",
-  id: null,
-  gid: null,
-  headers: [],
-  rows: [],
-  workbook: null,
-  timerHandle: null
-};
 
 /* ---------------------------------------------------------------------- */
 /* INIT                                                                    */
 /* ---------------------------------------------------------------------- */
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", initGroupGate);
 
 function init() {
   const savedView = getSavedMapView();
@@ -74,12 +66,12 @@ function init() {
   setupPria();
   setupFileUpload();
   setupMyFilesBrowser();
-  setupSearch();
-  setupSheets();
   setupLocateControls();
   setupCoordReadout();
   setupPanelToggle();
   setupModals();
+
+  loadSharedDataset();
 
   map.on("moveend", debounce(() => {
     refreshAllEnabledPriaLayers();
@@ -172,13 +164,184 @@ function updateBaseLayerUISync(id) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* GRUPI VALIK (startup gate)                                              */
+/* ---------------------------------------------------------------------- */
+let pendingNewGroupCode = null;
+
+function initGroupGate() {
+  document.getElementById("groupGateCloseBtn").addEventListener("click", hideGroupGate);
+  document.getElementById("groupGateStartBtn").addEventListener("click", handleGroupGateStart);
+  document.getElementById("groupGateJoinShowBtn").addEventListener("click", () => showGroupGateStep("join"));
+  document.getElementById("groupGateJoinBackBtn").addEventListener("click", () => showGroupGateStep("choose"));
+  document.getElementById("groupGateJoinConfirmBtn").addEventListener("click", handleGroupGateJoinConfirm);
+  document.getElementById("groupGateCreatedContinueBtn").addEventListener("click", handleGroupGateCreatedContinue);
+  document.getElementById("groupBadgeBtn").addEventListener("click", () => openGroupGate(false));
+
+  const saved = localStorage.getItem("jaljedGroupCode");
+  if (saved && /^\d{4}$/.test(saved)) {
+    currentGroupCode = saved;
+    updateGroupBadge();
+    init();
+  } else {
+    openGroupGate(true);
+  }
+}
+
+function openGroupGate(mandatory) {
+  document.getElementById("groupGateOverlay").classList.remove("hidden");
+  document.getElementById("groupGateCloseBtn").classList.toggle("hidden", mandatory);
+  showGroupGateStep("choose");
+}
+
+function hideGroupGate() {
+  document.getElementById("groupGateOverlay").classList.add("hidden");
+}
+
+function showGroupGateStep(step) {
+  const labels = { choose: "Choose", created: "Created", join: "Join" };
+  Object.keys(labels).forEach(s => {
+    document.getElementById(`groupGateStep${labels[s]}`).classList.toggle("hidden", s !== step);
+  });
+  document.getElementById("groupGateJoinError").classList.add("hidden");
+  document.getElementById("groupGateCodeInput").value = "";
+}
+
+function handleGroupGateStart() {
+  let code;
+  do {
+    code = String(Math.floor(1000 + Math.random() * 9000));
+  } while (code === CONFIG.adminGroupCode);
+  pendingNewGroupCode = code;
+  document.getElementById("groupGateNewCode").textContent = code;
+  showGroupGateStep("created");
+}
+
+function handleGroupGateCreatedContinue() {
+  setActiveGroup(pendingNewGroupCode);
+}
+
+function handleGroupGateJoinConfirm() {
+  const val = document.getElementById("groupGateCodeInput").value.trim();
+  const errEl = document.getElementById("groupGateJoinError");
+  if (!/^\d{4}$/.test(val)) {
+    errEl.textContent = "Sisesta täpselt 4 numbrit.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  setActiveGroup(val);
+}
+
+function setActiveGroup(code) {
+  currentGroupCode = code;
+  localStorage.setItem("jaljedGroupCode", code);
+  updateGroupBadge();
+  hideGroupGate();
+  if (!map) {
+    init();
+  } else {
+    loadSharedDataset();
+  }
+}
+
+function updateGroupBadge() {
+  const badge = document.getElementById("groupBadgeBtn");
+  const isAdmin = currentGroupCode === CONFIG.adminGroupCode;
+  badge.textContent = isAdmin ? "Grupp: 1312 (admin)" : `Grupp: ${currentGroupCode}`;
+}
+
+function isVisibleToCurrentGroup(feature) {
+  if (currentGroupCode === CONFIG.adminGroupCode) return true;
+  return feature.properties && feature.properties.group_code === currentGroupCode;
+}
+
+function todayIsoDate(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function applyQuickDateFilter(target, range) {
+  let from = "", to = "";
+  if (range === "today") { from = todayIsoDate(); to = todayIsoDate(); }
+  else if (range === "yesterday") { from = todayIsoDate(-1); to = todayIsoDate(-1); }
+  else if (range === "week") { from = todayIsoDate(-7); to = todayIsoDate(); }
+  // "all" leaves from/to empty
+
+  document.getElementById(`${target}DateFrom`).value = from;
+  document.getElementById(`${target}DateTo`).value = to;
+  document.querySelectorAll(`.quickFilterBtn[data-target="${target}"]`).forEach(b => {
+    b.classList.toggle("active", b.dataset.range === range);
+  });
+
+  if (target === "tracks") applyTracksFilter(); else applyHundilipudFilter();
+}
+
+/* ---------------------------------------------------------------------- */
+/* ÜHINE ANDMESTIK: ulukite jäljed + hundilipud, üks fail serveris          */
+/* ---------------------------------------------------------------------- */
+
+/* ---- Loading (always straight from the server file — never local) ---- */
+async function loadSharedDataset() {
+  const tracksStatusEl = document.getElementById("tracksStatus");
+  const hlStatusEl = document.getElementById("hundilipudStatus");
+  tracksStatusEl.textContent = "Laen...";
+  hlStatusEl.textContent = "Laen...";
+  try {
+    const resp = await fetch(`${CONFIG.dataUrl}?_=${Date.now()}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const geojson = await resp.json();
+
+    tracksLayerGroup.clearLayers();
+    hundilipudLayerGroup.clearLayers();
+    sharedDataset = (geojson.features || []).map(feature => {
+      const kind = feature.properties && feature.properties.feature_type === "hundilipud" ? "hundilipud" : "track";
+      const group = kind === "hundilipud" ? renderHundilipudFeature(feature) : renderTrackFeature(feature);
+      return { feature, kind, group };
+    });
+
+    tracksStatusEl.textContent = "Laetud.";
+    hlStatusEl.textContent = "Laetud.";
+    applyTracksFilter();
+    applyHundilipudFilter();
+  } catch (err) {
+    tracksStatusEl.textContent = "Ei õnnestunud laadida.";
+    hlStatusEl.textContent = "Ei õnnestunud laadida.";
+    console.warn("loadSharedDataset failed:", err);
+  }
+}
+
+/* ---- Saving: POST straight to the write API, no local file, ever ---- */
+async function submitFeatureToServer(feature, statusElId) {
+  const statusEl = document.getElementById(statusElId);
+  if (!CONFIG.apiUrl) {
+    statusEl.textContent = "Salvestamise API pole veel seadistatud (CONFIG.apiUrl on tühi) — vt README.md.";
+    return false;
+  }
+  statusEl.textContent = "Salvestan serverisse...";
+  try {
+    const resp = await fetch(`${CONFIG.apiUrl}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature })
+    });
+    const result = await resp.json().catch(() => ({}));
+    if (!resp.ok || !result.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+    statusEl.textContent = "Salvestatud — nähtav kõigile grupi liikmetele.";
+    await loadSharedDataset();
+    return true;
+  } catch (err) {
+    statusEl.textContent = "Salvestamine ebaõnnestus: " + err.message;
+    console.warn("submitFeatureToServer failed:", err);
+    return false;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
 /* ULUKITE JÄLJED (wildlife track registrations)                            */
 /* ---------------------------------------------------------------------- */
 function setupTracks() {
   tracksLayerGroup = L.layerGroup().addTo(map);
-  tracksSessionGroup = L.layerGroup().addTo(map);
 
-  // Populate the species <select> in the registration form.
   const speciesSelect = document.getElementById("trackSpeciesSelect");
   CONFIG.tracks.species.forEach(s => {
     const opt = document.createElement("option");
@@ -187,7 +350,6 @@ function setupTracks() {
     speciesSelect.appendChild(opt);
   });
 
-  // Populate the direction <select>; default to "arrow at end".
   const dirSelect = document.getElementById("trackDirectionSelect");
   CONFIG.tracks.directions.forEach(d => {
     const opt = document.createElement("option");
@@ -197,7 +359,6 @@ function setupTracks() {
   });
   dirSelect.value = "end";
 
-  // Populate the registrant <select> (RP/OP/JL/AV + "Muu" free-text option).
   const registrantSelect = document.getElementById("trackRegistrantSelect");
   CONFIG.tracks.registrants.forEach(r => {
     const opt = document.createElement("option");
@@ -213,7 +374,6 @@ function setupTracks() {
     document.getElementById("trackRegistrantOtherInput").classList.toggle("hidden", registrantSelect.value !== "other");
   });
 
-  // Species filter checkboxes (left panel), all checked by default.
   const filterEl = document.getElementById("tracksSpeciesFilter");
   CONFIG.tracks.species.forEach(s => {
     const row = document.createElement("label");
@@ -230,10 +390,16 @@ function setupTracks() {
   });
   document.getElementById("tracksDateFrom").addEventListener("change", applyTracksFilter);
   document.getElementById("tracksDateTo").addEventListener("change", applyTracksFilter);
+  document.querySelectorAll('.quickFilterBtn[data-target="tracks"]').forEach(btn => {
+    btn.addEventListener("click", () => applyQuickDateFilter("tracks", btn.dataset.range));
+  });
+  // Default: only today's tracks are visible until the filter is changed.
+  document.getElementById("tracksDateFrom").value = todayIsoDate();
+  document.getElementById("tracksDateTo").value = todayIsoDate();
+  document.querySelector('.quickFilterBtn[data-target="tracks"][data-range="today"]').classList.add("active");
 
   document.getElementById("trackDateInput").value = todayIsoDate();
 
-  // Toggle direction row depending on point/line choice.
   document.querySelectorAll('input[name="trackGeomType"]').forEach(radio => {
     radio.addEventListener("change", () => {
       document.getElementById("trackDirectionRow")
@@ -248,23 +414,13 @@ function setupTracks() {
   document.getElementById("trackFinishLineBtn").addEventListener("click", finishTrackDrawing);
   document.getElementById("trackCancelDrawBtn").addEventListener("click", cancelTrackDrawing);
   document.getElementById("trackSaveBtn").addEventListener("click", saveTrackRegistration);
-  document.getElementById("tracksLoadBtn").addEventListener("click", loadTracksData);
-
-  restoreSessionDrafts();
-  loadTracksData();
-}
-
-function todayIsoDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  document.getElementById("tracksLoadBtn").addEventListener("click", loadSharedDataset);
 }
 
 /* ---- Registration widget open/close ---- */
 function toggleTrackRegisterWidget() {
   const widget = document.getElementById("trackRegisterWidget");
   const opening = widget.classList.contains("hidden");
-  document.getElementById("mapSearchWidget").classList.add("hidden");
-  document.getElementById("mapSearchToggleBtn").classList.remove("active");
   closeHundilipudWidget();
   widget.classList.toggle("hidden", !opening);
   document.getElementById("trackRegisterToggleBtn").classList.toggle("active", opening);
@@ -280,7 +436,7 @@ function closeTrackRegisterWidget() {
 /* ---- Drawing on the map ----
    Lines finish via an explicit "✔ Lõpeta joon" button rather than
    double-click — double-click fires two ordinary "click" events before
-   the "dblclick" event itself in Leaflet, which made the line-finishing
+   the "dblclick" event itself in Leaflet, which made line-finishing
    unreliable (it depended on precise browser/timing behavior). A button
    is unambiguous and works the same everywhere. */
 function startTrackDrawing() {
@@ -361,8 +517,8 @@ function redrawTrackPreview() {
   }
 }
 
-/* ---- Save (build GeoJSON feature, render, buffer, download) ---- */
-function saveTrackRegistration() {
+/* ---- Save: send straight to the server, no local file ---- */
+async function saveTrackRegistration() {
   if (!trackDrawState || trackDrawState.points.length === 0) {
     notify("Kõigepealt joonista jälg kaardile.");
     return;
@@ -392,6 +548,7 @@ function saveTrackRegistration() {
     type: "Feature",
     geometry: { type: type === "point" ? "Point" : "LineString", coordinates: coords },
     properties: {
+      feature_type: "track",
       geom_type: type,
       species,
       direction,
@@ -399,55 +556,24 @@ function saveTrackRegistration() {
       pack_size: packSize,
       remarks,
       registrant,
+      group_code: currentGroupCode,
       registered_at: new Date().toISOString()
     }
   };
 
-  // Render immediately in the session-only layer so it's visible right away.
-  const group = renderTrackFeature(feature);
-  group.addTo(tracksSessionGroup);
-
-  // Buffer to localStorage so a page refresh before pushing doesn't lose it.
-  const drafts = getSessionDrafts();
-  drafts.push(feature);
-  localStorage.setItem("trackSessionDrafts", JSON.stringify(drafts));
-
-  downloadFeatureAsGeoJson(feature);
-
-  const statusEl = document.getElementById("trackSaveStatus");
-  statusEl.textContent = "Fail allalaaditud. Lisa see kausta data/registrations/ ja tee git push, et see kõigile jäädavalt kaardile jääks (vt ⓘ).";
-
-  cancelTrackDrawing();
-  document.getElementById("trackRemarksInput").value = "";
-  document.getElementById("trackPackSizeInput").value = "1";
+  const trackSaveBtn = document.getElementById("trackSaveBtn");
+  trackSaveBtn.disabled = true;
+  const ok = await submitFeatureToServer(feature, "trackSaveStatus");
+  if (ok) {
+    cancelTrackDrawing();
+    document.getElementById("trackRemarksInput").value = "";
+    document.getElementById("trackPackSizeInput").value = "1";
+  } else {
+    trackSaveBtn.disabled = false;
+  }
 }
 
-function downloadFeatureAsGeoJson(feature) {
-  const p = feature.properties;
-  const safeDate = (p.date || todayIsoDate()).replace(/[^0-9-]/g, "");
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `jalg_${p.species}_${safeDate}_${stamp}.geojson`;
-  const blob = new Blob([JSON.stringify(feature, null, 2)], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function getSessionDrafts() {
-  try { return JSON.parse(localStorage.getItem("trackSessionDrafts") || "[]"); }
-  catch (e) { return []; }
-}
-
-function restoreSessionDrafts() {
-  getSessionDrafts().forEach(feature => renderTrackFeature(feature).addTo(tracksSessionGroup));
-}
-
-/* ---- Rendering (shared by loaded dataset + session drafts) ---- */
+/* ---- Rendering ---- */
 function speciesConfig(id) {
   return CONFIG.tracks.species.find(s => s.id === id) || { id, label: id || "Teadmata", color: "#666" };
 }
@@ -461,6 +587,7 @@ function trackPopupHtml(props) {
   if (props.geom_type === "line") html += `Suund: ${escapeHtml(dir ? dir.label : "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
   if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
+  if (currentGroupCode === CONFIG.adminGroupCode) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
   return html;
 }
 
@@ -484,9 +611,6 @@ function createArrowMarker(latlng, bearingDeg, color) {
   });
 }
 
-// Renders one GeoJSON feature (point or line, with optional direction
-// arrows) as a small L.featureGroup, so it can be added/removed from the
-// map as a single unit for filtering.
 function renderTrackFeature(feature) {
   const props = feature.properties || {};
   const sp = speciesConfig(props.species);
@@ -515,30 +639,7 @@ function renderTrackFeature(feature) {
   return group;
 }
 
-/* ---- Loading the merged dataset + filtering ---- */
-function loadTracksData() {
-  const statusEl = document.getElementById("tracksStatus");
-  statusEl.textContent = "Laen...";
-  fetch(`${CONFIG.tracks.dataUrl}?_=${Date.now()}`)
-    .then(r => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    })
-    .then(geojson => {
-      tracksLayerGroup.clearLayers();
-      tracksData = (geojson.features || []).map(feature => ({
-        feature,
-        group: renderTrackFeature(feature)
-      }));
-      statusEl.textContent = `Laetud (${tracksData.length}).`;
-      applyTracksFilter();
-    })
-    .catch(err => {
-      statusEl.textContent = "Ei õnnestunud laadida.";
-      console.warn("loadTracksData failed:", err);
-    });
-}
-
+/* ---- Filtering (species + date range + group), against the shared dataset ---- */
 function applyTracksFilter() {
   const checkedSpecies = new Set(
     Array.from(document.querySelectorAll(".trackSpeciesFilterCheckbox:checked")).map(cb => cb.value)
@@ -546,10 +647,12 @@ function applyTracksFilter() {
   const from = document.getElementById("tracksDateFrom").value;
   const to = document.getElementById("tracksDateTo").value;
 
-  let visibleCount = 0;
-  tracksData.forEach(entry => {
+  let visibleCount = 0, totalCount = 0;
+  sharedDataset.forEach(entry => {
+    if (entry.kind !== "track") return;
+    totalCount++;
     const props = entry.feature.properties || {};
-    let visible = checkedSpecies.has(props.species);
+    let visible = isVisibleToCurrentGroup(entry.feature) && checkedSpecies.has(props.species);
     if (visible && from && props.date && props.date < from) visible = false;
     if (visible && to && props.date && props.date > to) visible = false;
 
@@ -559,7 +662,7 @@ function applyTracksFilter() {
     if (visible) visibleCount++;
   });
 
-  document.getElementById("tracksCount").textContent = `Näidatud: ${visibleCount} / ${tracksData.length}`;
+  document.getElementById("tracksCount").textContent = `Näidatud: ${visibleCount} / ${totalCount}`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -567,7 +670,6 @@ function applyTracksFilter() {
 /* ---------------------------------------------------------------------- */
 function setupHundilipud() {
   hundilipudLayerGroup = L.layerGroup().addTo(map);
-  hundilipudSessionGroup = L.layerGroup().addTo(map);
 
   const registrantSelect = document.getElementById("hundilipudRegistrantSelect");
   CONFIG.hundilipud.registrants.forEach(r => {
@@ -592,22 +694,22 @@ function setupHundilipud() {
   document.getElementById("hundilipudFinishBtn").addEventListener("click", finishHundilipudDrawing);
   document.getElementById("hundilipudCancelDrawBtn").addEventListener("click", cancelHundilipudDrawing);
   document.getElementById("hundilipudSaveBtn").addEventListener("click", saveHundilipud);
-  document.getElementById("hundilipudLoadBtn").addEventListener("click", loadHundilipudData);
-  document.getElementById("hundilipudVisibleToggle").addEventListener("change", (e) => {
-    if (e.target.checked) { map.addLayer(hundilipudLayerGroup); map.addLayer(hundilipudSessionGroup); }
-    else { map.removeLayer(hundilipudLayerGroup); map.removeLayer(hundilipudSessionGroup); }
-  });
+  document.getElementById("hundilipudLoadBtn").addEventListener("click", loadSharedDataset);
 
-  restoreHundilipudSessionDrafts();
-  loadHundilipudData();
+  document.getElementById("hundilipudDateFrom").addEventListener("change", applyHundilipudFilter);
+  document.getElementById("hundilipudDateTo").addEventListener("change", applyHundilipudFilter);
+  document.querySelectorAll('.quickFilterBtn[data-target="hundilipud"]').forEach(btn => {
+    btn.addEventListener("click", () => applyQuickDateFilter("hundilipud", btn.dataset.range));
+  });
+  document.getElementById("hundilipudDateFrom").value = todayIsoDate();
+  document.getElementById("hundilipudDateTo").value = todayIsoDate();
+  document.querySelector('.quickFilterBtn[data-target="hundilipud"][data-range="today"]').classList.add("active");
 }
 
-/* ---- Widget open/close (mutually exclusive with the other two) ---- */
+/* ---- Widget open/close ---- */
 function toggleHundilipudWidget() {
   const widget = document.getElementById("hundilipudWidget");
   const opening = widget.classList.contains("hidden");
-  document.getElementById("mapSearchWidget").classList.add("hidden");
-  document.getElementById("mapSearchToggleBtn").classList.remove("active");
   closeTrackRegisterWidget();
   widget.classList.toggle("hidden", !opening);
   document.getElementById("hundilipudToggleBtn").classList.toggle("active", opening);
@@ -682,8 +784,8 @@ function redrawHundilipudPreview() {
   }
 }
 
-/* ---- Save (build GeoJSON feature, render, buffer, download) ---- */
-function saveHundilipud() {
+/* ---- Save: send straight to the server, no local file ---- */
+async function saveHundilipud() {
   if (!hundilipudDrawState || hundilipudDrawState.points.length < 2) {
     notify("Kõigepealt joonista hundilippude liin kaardile.");
     return;
@@ -705,57 +807,29 @@ function saveHundilipud() {
       date,
       remarks,
       registrant,
+      group_code: currentGroupCode,
       registered_at: new Date().toISOString()
     }
   };
 
-  const group = renderHundilipudFeature(feature);
-  group.addTo(hundilipudSessionGroup);
-
-  const drafts = getHundilipudSessionDrafts();
-  drafts.push(feature);
-  localStorage.setItem("hundilipudSessionDrafts", JSON.stringify(drafts));
-
-  downloadHundilipudFeature(feature);
-
-  document.getElementById("hundilipudSaveStatus").textContent =
-    "Fail allalaaditud. Lisa see kausta data/hundilipud/ ja tee git push, et see kõigile jäädavalt kaardile jääks (vt ⓘ).";
-
-  cancelHundilipudDrawing();
-  document.getElementById("hundilipudRemarksInput").value = "";
+  const saveBtn = document.getElementById("hundilipudSaveBtn");
+  saveBtn.disabled = true;
+  const ok = await submitFeatureToServer(feature, "hundilipudSaveStatus");
+  if (ok) {
+    cancelHundilipudDrawing();
+    document.getElementById("hundilipudRemarksInput").value = "";
+  } else {
+    saveBtn.disabled = false;
+  }
 }
 
-function downloadHundilipudFeature(feature) {
-  const p = feature.properties;
-  const safeDate = (p.date || todayIsoDate()).replace(/[^0-9-]/g, "");
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `hundilipud_${safeDate}_${stamp}.geojson`;
-  const blob = new Blob([JSON.stringify(feature, null, 2)], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function getHundilipudSessionDrafts() {
-  try { return JSON.parse(localStorage.getItem("hundilipudSessionDrafts") || "[]"); }
-  catch (e) { return []; }
-}
-
-function restoreHundilipudSessionDrafts() {
-  getHundilipudSessionDrafts().forEach(feature => renderHundilipudFeature(feature).addTo(hundilipudSessionGroup));
-}
-
-/* ---- Rendering (shared by loaded dataset + session drafts) ---- */
+/* ---- Rendering ---- */
 function hundilipudPopupHtml(props) {
   let html = `<strong>Hundilipud</strong><br>`;
   html += `Kuupäev: ${escapeHtml(props.date || "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
   if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
+  if (currentGroupCode === CONFIG.adminGroupCode) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
   return html;
 }
 
@@ -772,29 +846,27 @@ function renderHundilipudFeature(feature) {
   return group;
 }
 
-/* ---- Loading the merged dataset ---- */
-function loadHundilipudData() {
-  const statusEl = document.getElementById("hundilipudStatus");
-  statusEl.textContent = "Laen...";
-  fetch(`${CONFIG.hundilipud.dataUrl}?_=${Date.now()}`)
-    .then(r => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    })
-    .then(geojson => {
-      hundilipudLayerGroup.clearLayers();
-      hundilipudData = (geojson.features || []).map(feature => ({
-        feature,
-        group: renderHundilipudFeature(feature)
-      }));
-      hundilipudData.forEach(entry => hundilipudLayerGroup.addLayer(entry.group));
-      statusEl.textContent = `Laetud (${hundilipudData.length}).`;
-      document.getElementById("hundilipudCount").textContent = `Kokku: ${hundilipudData.length}`;
-    })
-    .catch(err => {
-      statusEl.textContent = "Ei õnnestunud laadida.";
-      console.warn("loadHundilipudData failed:", err);
-    });
+/* ---- Filtering (date range + group), against the shared dataset ---- */
+function applyHundilipudFilter() {
+  const from = document.getElementById("hundilipudDateFrom").value;
+  const to = document.getElementById("hundilipudDateTo").value;
+
+  let visibleCount = 0, totalCount = 0;
+  sharedDataset.forEach(entry => {
+    if (entry.kind !== "hundilipud") return;
+    totalCount++;
+    const props = entry.feature.properties || {};
+    let visible = isVisibleToCurrentGroup(entry.feature);
+    if (visible && from && props.date && props.date < from) visible = false;
+    if (visible && to && props.date && props.date > to) visible = false;
+
+    const currentlyOn = hundilipudLayerGroup.hasLayer(entry.group);
+    if (visible && !currentlyOn) hundilipudLayerGroup.addLayer(entry.group);
+    if (!visible && currentlyOn) hundilipudLayerGroup.removeLayer(entry.group);
+    if (visible) visibleCount++;
+  });
+
+  document.getElementById("hundilipudCount").textContent = `Näidatud: ${visibleCount} / ${totalCount}`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1069,13 +1141,10 @@ function refreshPriaPresetSelect(selectName) {
 /* GEOLOCATION ("blue dot")                                                 */
 /* ---------------------------------------------------------------------- */
 function setupLocateControls() {
-  document.getElementById("locateBtn").addEventListener("click", toggleLiveLocation);
   document.getElementById("mapLocateBtn").addEventListener("click", toggleLiveLocation);
-  document.getElementById("fitEstoniaBtn").addEventListener("click", () => map.fitBounds(CONFIG.estoniaBounds));
 }
 
 function setLocateButtonsActive(active) {
-  document.getElementById("locateBtn").classList.toggle("active", active);
   document.getElementById("mapLocateBtn").classList.toggle("active", active);
 }
 
@@ -1176,9 +1245,10 @@ function setupModals() {
   document.getElementById("appInfoBtn").addEventListener("click", () => {
     openModal("Rakenduse info", `
       <h3>Jäljed</h3>
-      <p>Ulukite jälgede registreerimise ja kaardistamise rakendus: taustakaardid,
-      PRIA põllumassiivid, ulukijälgede sisestus ja filtreerimine, sinu enda
-      üleslaetud kaardikihid ning Google Sheets/repo-fail väliandmed ühel vaatel.</p>
+      <p>Ulukite jälgede ja hundilippude registreerimise ning kaardistamise
+      rakendus: taustakaardid, PRIA põllumassiivid, ulukijälgede/hundilippude
+      sisestus ja filtreerimine (grupipõhine nähtavus) ning sinu enda
+      üleslaetud kaardikihid ühel vaatel.</p>
       <p><strong>Andmete allikad ja litsentsid:</strong></p>
       <ul>
         <li>Maa- ja Ruumiamet — taustakaardid (CC BY 4.0)</li>
@@ -1370,7 +1440,6 @@ function addGeoJsonToMap(geojson, label, source) {
 
   myLayers[id] = entry;
   renderMyLayersList();
-  refreshSearchLayerOptions();
   renderMyLayerForCurrentView(entry);
 
   try {
@@ -1863,7 +1932,6 @@ async function removeMyLayer(id) {
   if (entry.renderedLayer) map.removeLayer(entry.renderedLayer);
   delete myLayers[id];
   renderMyLayersList();
-  refreshSearchLayerOptions();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1938,481 +2006,6 @@ async function loadMyFilesEntry(fname) {
     }
   } catch (err) {
     console.warn(`Faili "${fname}" laadimine ebaõnnestus: ${err.message}`);
-  }
-}
-
-/* ---------------------------------------------------------------------- */
-/* SEARCH + Google Maps directions (Minu kaardid)                          */
-/* ---------------------------------------------------------------------- */
-function setupSearch() {
-  document.getElementById("searchLayerSelect").addEventListener("change", refreshSearchFieldOptions);
-  document.getElementById("searchGoBtn").addEventListener("click", performSearch);
-  document.getElementById("mapSearchToggleBtn").addEventListener("click", toggleSearchWidget);
-  document.getElementById("searchCloseBtn").addEventListener("click", () => closeSearchWidget());
-  refreshSearchLayerOptions();
-}
-
-function toggleSearchWidget() {
-  const widget = document.getElementById("mapSearchWidget");
-  const nowHidden = widget.classList.toggle("hidden");
-  document.getElementById("mapSearchToggleBtn").classList.toggle("active", !nowHidden);
-  if (!nowHidden) { closeTrackRegisterWidget(); closeHundilipudWidget(); }
-}
-
-function closeSearchWidget() {
-  document.getElementById("mapSearchWidget").classList.add("hidden");
-  document.getElementById("mapSearchToggleBtn").classList.remove("active");
-}
-
-function refreshSearchLayerOptions() {
-  const select = document.getElementById("searchLayerSelect");
-  const previous = select.value;
-  select.innerHTML = "";
-  Object.values(myLayers).forEach(entry => {
-    const opt = document.createElement("option");
-    opt.value = entry.id;
-    opt.textContent = "📄 " + entry.name;
-    select.appendChild(opt);
-  });
-  if (select.options.length === 0) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "(lisa esmalt fail 'Minu kaardid' alt)";
-    select.appendChild(opt);
-  } else if (previous && Array.from(select.options).some(o => o.value === previous)) {
-    select.value = previous;
-  }
-  refreshSearchFieldOptions();
-}
-
-function refreshSearchFieldOptions() {
-  const layerId = document.getElementById("searchLayerSelect").value;
-  const fieldSelect = document.getElementById("searchFieldSelect");
-  fieldSelect.innerHTML = "";
-  const entry = myLayers[layerId];
-  if (!entry) return;
-  entry.fields.forEach(f => {
-    const opt = document.createElement("option");
-    opt.value = f; opt.textContent = f;
-    fieldSelect.appendChild(opt);
-  });
-  const guess = entry.fields.find(f => /nimi|name|kood|code|objekt|^id$/i.test(f));
-  if (guess) fieldSelect.value = guess;
-}
-
-function performSearch() {
-  const layerId = document.getElementById("searchLayerSelect").value;
-  const field = document.getElementById("searchFieldSelect").value;
-  const query = document.getElementById("searchTextInput").value.trim().toLowerCase();
-  const resultBox = document.getElementById("searchResult");
-
-  const entry = myLayers[layerId];
-  if (!entry || !field || !query) {
-    setStatus("searchStatus", "Vali kiht, väli ja sisesta otsitav väärtus.");
-    resultBox.classList.add("hidden");
-    return;
-  }
-
-  const matches = entry.rawFeatures.filter(f =>
-    f.properties && String(f.properties[field] ?? "").toLowerCase().includes(query)
-  );
-
-  if (matches.length === 0) {
-    setStatus("searchStatus", "Ühtegi objekti ei leitud.");
-    resultBox.classList.add("hidden");
-    return;
-  }
-
-  const feature = matches[0];
-  const bounds = feature.__bounds;
-  const center = bounds && bounds.isValid() ? bounds.getCenter() : null;
-
-  setStatus("searchStatus",
-    matches.length > 1 ? `${matches.length} vastet leitud, näidatakse esimest.` : "1 vaste leitud.");
-
-  if (searchHighlightMarker) { map.removeLayer(searchHighlightMarker); searchHighlightMarker = null; }
-
-  if (center) {
-    const targetZoom = Math.max(map.getZoom(), entry.minZoom, entry.labelMinZoom, 16);
-    map.setView(center, targetZoom);
-    if (currentBaseLayer) currentBaseLayer.bringToBack(); // defensive: keep base map behind everything
-    searchHighlightMarker = L.circleMarker(center, {
-      radius: 12, color: "#ff0000", weight: 3, fillOpacity: 0
-    }).addTo(map);
-  }
-
-  resultBox.classList.remove("hidden");
-  resultBox.innerHTML = "";
-  const rows = Object.entries(feature.properties || {})
-    .map(([k, v]) => {
-      const vStr = String(v);
-      if (isPhoneField(k, v)) {
-        const telHref = formatPhoneForTel(vStr);
-        const valueHtml = telHref ? `<a href="tel:${escapeHtml(telHref)}">${escapeHtml(vStr)}</a>` : escapeHtml(vStr);
-        return `<tr><td>${escapeHtml(k)}</td><td>${valueHtml}</td></tr>`;
-      }
-      return `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(vStr)}</td></tr>`;
-    })
-    .join("");
-  resultBox.innerHTML = `<table class="popupTable">${rows}</table>`;
-
-  if (center) {
-    const dirLink = document.createElement("a");
-    dirLink.href = `https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lng}`;
-    dirLink.target = "_blank";
-    dirLink.rel = "noopener";
-    dirLink.className = "wideBtn directionsLink";
-    dirLink.textContent = "🚗 Ava Google Mapsi juhised";
-    resultBox.appendChild(dirLink);
-  }
-}
-
-/* ---------------------------------------------------------------------- */
-/* VÄLIANDMED: Google Sheets (JSONP) / repo-fail CSV-XLSX (both backend-free) */
-/* ---------------------------------------------------------------------- */
-function setupSheets() {
-  document.getElementById("sheetLoadBtn").addEventListener("click", () => loadSheetData(false));
-  document.getElementById("repoFileLoadBtn").addEventListener("click", () => loadRepoFileData(false));
-  document.getElementById("repoFileTabSelect").addEventListener("change", applyRepoFileTab);
-
-  document.querySelectorAll('input[name="sheetSource"]').forEach(radio => {
-    radio.addEventListener("change", () => {
-      sheetState.source = radio.value;
-      document.getElementById("googleSourceControls").classList.toggle("hidden", radio.value !== "google");
-      document.getElementById("repoFileSourceControls").classList.toggle("hidden", radio.value !== "repofile");
-    });
-  });
-
-  document.getElementById("sheetJoinBtn").addEventListener("click", performSheetJoin);
-  document.getElementById("sheetRefreshTargetsBtn").addEventListener("click", refreshJoinTargetOptions);
-  document.getElementById("sheetTargetLayerSelect").addEventListener("change", populateTargetFieldOptions);
-  document.getElementById("sheetAutoRefreshSelect").addEventListener("change", (e) => {
-    setupSheetAutoRefresh(parseInt(e.target.value, 10));
-  });
-}
-
-function parseGoogleSheetUrl(raw) {
-  const val = raw.trim();
-  const idMatch = val.match(/\/d\/([a-zA-Z0-9-_]+)/);
-  const gidMatch = val.match(/[#&?]gid=(\d+)/);
-  return { id: idMatch ? idMatch[1] : val, gid: gidMatch ? gidMatch[1] : CONFIG.sheets.defaultGid };
-}
-
-/* Google Sheets via JSONP — this bypasses CORS entirely (script tags
-   aren't subject to the same-origin restrictions fetch()/XHR are), so it
-   works from a pure static host like GitHub Pages with zero backend. */
-function loadGoogleSheetJSONP(id, gid) {
-  return new Promise((resolve, reject) => {
-    const callbackName = "sak26SheetCb_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
-    const script = document.createElement("script");
-    let settled = false;
-
-    const timeoutHandle = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error("Sheet ei vastanud (kontrolli linki ja jagamisõigusi)."));
-    }, 15000);
-
-    function cleanup() {
-      delete window[callbackName];
-      script.remove();
-      clearTimeout(timeoutHandle);
-    }
-
-    window[callbackName] = (response) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(response);
-    };
-
-    script.src = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json;responseHandler=${callbackName}&gid=${gid}`;
-    script.onerror = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error("Sheeti ei õnnestunud laadida (kontrolli linki/ID-d ja jagamisõigusi)."));
-    };
-    document.head.appendChild(script);
-  });
-}
-
-function gvizResponseToRows(response) {
-  const cols = (response.table && response.table.cols) || [];
-  const headers = cols.map((c, i) => (c.label && c.label.trim()) || c.id || `col${i}`);
-  const rows = ((response.table && response.table.rows) || []).map(r => {
-    const obj = {};
-    (r.c || []).forEach((cell, i) => {
-      const header = headers[i];
-      if (!header) return;
-      let value = "";
-      if (cell) value = (cell.f !== undefined && cell.f !== null) ? cell.f : (cell.v !== undefined && cell.v !== null ? cell.v : "");
-      obj[header] = value;
-    });
-    return obj;
-  });
-  return { headers, rows };
-}
-
-async function loadSheetData(silent) {
-  const input = document.getElementById("sheetUrlInput").value.trim();
-  if (!input) { if (!silent) notify("Sisesta Google Sheeti link või ID."); return; }
-
-  const { id, gid } = parseGoogleSheetUrl(input);
-  sheetState.id = id; sheetState.gid = gid; sheetState.source = "google";
-
-  if (!silent) setStatus("sheetStatus", "Loen Sheeti...");
-
-  try {
-    const response = await loadGoogleSheetJSONP(id, gid);
-    if (response.status === "error") {
-      const msg = (response.errors && response.errors[0] && response.errors[0].detailed_message) || "Tundmatu viga";
-      throw new Error(msg);
-    }
-    const { headers, rows } = gvizResponseToRows(response);
-    if (rows.length === 0) {
-      throw new Error("Sheetist ei leitud ridu (kas jagamisõigused on 'kõigil, kellel link on'?)");
-    }
-    sheetState.headers = headers;
-    sheetState.rows = rows;
-
-    document.getElementById("sheetJoinControls").classList.remove("hidden");
-    populateKeyColumnOptions();
-    refreshJoinTargetOptions();
-
-    if (!silent) setStatus("sheetStatus", `${rows.length} rida loetud (${headers.length} veergu).`);
-  } catch (err) {
-    setStatus("sheetStatus", `Sheeti lugemine ebaõnnestus (${err.message}).`);
-  }
-}
-
-/* Repo file (CSV/XLSX) — a plain same-origin fetch of a file committed
-   into the repo. No CORS issue at all since it's served from the same
-   domain as the app itself. This is the replacement for a live OneDrive
-   fetch: export your Excel/OneDrive data, commit the export, push. */
-async function loadRepoFileData(silent) {
-  const input = document.getElementById("repoFileUrlInput").value.trim();
-  if (!input) { if (!silent) notify("Sisesta faili tee repositooriumis."); return; }
-
-  if (/^https?:\/\//i.test(input)) {
-    setStatus("sheetStatus",
-      "See väli võtab vastu ainult faili tee SINU GitHubi repositooriumis (nt " +
-      "\"MyFiles/data/valiandmed.xlsx\"), mitte välist linki. OneDrive/SharePoint/Google " +
-      "linki ei saa siia otse panna — CORS piirangute tõttu ei saa GitHub Pages seda " +
-      "otse lugeda. Ekspordi fail (CSV/XLSX), lisa see oma repositooriumisse ja sisesta " +
-      "siia selle tee (vt ⓘ info).");
-    return;
-  }
-
-  if (!silent) setStatus("sheetStatus", "Loen repo faili...");
-
-  try {
-    const resp = await fetch(`${input}?t=${Date.now()}`); // cache-bust
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    const ext = input.split(".").pop().toLowerCase();
-
-    if (ext === "csv") {
-      const text = await resp.text();
-      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-      if (!parsed.data || parsed.data.length === 0) throw new Error("CSV-st ei leitud ridu.");
-      sheetState.headers = parsed.meta.fields || [];
-      sheetState.rows = parsed.data;
-      sheetState.workbook = null;
-      document.getElementById("repoFileTabRow").classList.add("hidden");
-    } else if (ext === "xlsx" || ext === "xls") {
-      const buf = await resp.arrayBuffer();
-      const workbook = XLSX.read(new Uint8Array(buf), { type: "array" });
-      if (!workbook.SheetNames || workbook.SheetNames.length === 0) throw new Error("Failist ei leitud ühtegi töölehte");
-      sheetState.workbook = workbook;
-
-      const tabRow = document.getElementById("repoFileTabRow");
-      const tabSelect = document.getElementById("repoFileTabSelect");
-      tabSelect.innerHTML = "";
-      workbook.SheetNames.forEach(name => {
-        const opt = document.createElement("option");
-        opt.value = name; opt.textContent = name;
-        tabSelect.appendChild(opt);
-      });
-      tabRow.classList.toggle("hidden", workbook.SheetNames.length <= 1);
-      applyRepoFileTab();
-    } else {
-      throw new Error("Toetatud on ainult .csv, .xlsx ja .xls failid.");
-    }
-
-    sheetState.source = "repofile";
-    document.getElementById("sheetJoinControls").classList.remove("hidden");
-    populateKeyColumnOptions();
-    refreshJoinTargetOptions();
-
-    if (!silent) setStatus("sheetStatus", `${sheetState.rows.length} rida loetud (${sheetState.headers.length} veergu).`);
-  } catch (err) {
-    setStatus("sheetStatus", `Repo faili lugemine ebaõnnestus (${err.message}).`);
-  }
-}
-
-function applyRepoFileTab() {
-  if (!sheetState.workbook) return;
-  const tabSelect = document.getElementById("repoFileTabSelect");
-  const sheetName = tabSelect.value || sheetState.workbook.SheetNames[0];
-  const ws = sheetState.workbook.Sheets[sheetName];
-  if (!ws) return;
-
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  sheetState.rows = rows;
-  const headers = new Set();
-  rows.forEach(r => Object.keys(r).forEach(k => headers.add(k)));
-  sheetState.headers = Array.from(headers);
-
-  document.getElementById("sheetJoinControls").classList.remove("hidden");
-  populateKeyColumnOptions();
-  refreshJoinTargetOptions();
-}
-
-function populateKeyColumnOptions() {
-  const select = document.getElementById("sheetKeyColumnSelect");
-  select.innerHTML = "";
-  sheetState.headers.forEach(h => {
-    const opt = document.createElement("option");
-    opt.value = h; opt.textContent = h;
-    select.appendChild(opt);
-  });
-  const guess = sheetState.headers.find(h => /nimi|name|objekt|object|^id$/i.test(h));
-  if (guess) select.value = guess;
-}
-
-function refreshJoinTargetOptions() {
-  const select = document.getElementById("sheetTargetLayerSelect");
-  const previous = select.value;
-  select.innerHTML = "";
-  Object.values(myLayers).forEach(entry => {
-    const opt = document.createElement("option");
-    opt.value = `my:${entry.id}`;
-    opt.textContent = "📄 " + entry.name;
-    select.appendChild(opt);
-  });
-  Object.keys(priaLayersState).forEach(typeName => {
-    const opt = document.createElement("option");
-    opt.value = `pria:${typeName}`;
-    opt.textContent = "🌾 " + typeName;
-    select.appendChild(opt);
-  });
-  if (select.options.length === 0) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "(pole ühtegi sobivat kihti)";
-    select.appendChild(opt);
-  } else if (previous && Array.from(select.options).some(o => o.value === previous)) {
-    select.value = previous;
-  }
-  populateTargetFieldOptions();
-}
-
-function resolveJoinTarget(targetId) {
-  if (!targetId) return null;
-  if (targetId.startsWith("my:")) {
-    const entry = myLayers[targetId.slice(3)];
-    return entry ? { kind: "my", entry, features: entry.rawFeatures } : null;
-  }
-  if (targetId.startsWith("pria:")) {
-    const typeName = targetId.slice(5);
-    const state = priaLayersState[typeName];
-    if (!state) return null;
-    const features = [];
-    state.geo.eachLayer(l => { if (l.feature) features.push(l.feature); });
-    return { kind: "pria", typeName, features };
-  }
-  return null;
-}
-
-function populateTargetFieldOptions() {
-  const targetId = document.getElementById("sheetTargetLayerSelect").value;
-  const fieldSelect = document.getElementById("sheetTargetFieldSelect");
-  fieldSelect.innerHTML = "";
-  const target = resolveJoinTarget(targetId);
-  if (!target) return;
-  const fields = target.kind === "my" ? target.entry.fields : collectFieldNamesFromFeatures(target.features);
-  fields.forEach(f => {
-    const opt = document.createElement("option");
-    opt.value = f; opt.textContent = f;
-    fieldSelect.appendChild(opt);
-  });
-  const guess = fields.find(f => /nimi|name|objekt|object|^id$/i.test(f));
-  if (guess) fieldSelect.value = guess;
-}
-
-function performSheetJoin() {
-  const keyColumn = document.getElementById("sheetKeyColumnSelect").value;
-  const targetId = document.getElementById("sheetTargetLayerSelect").value;
-  const targetField = document.getElementById("sheetTargetFieldSelect").value;
-
-  if (!keyColumn || !targetId || !targetField) {
-    setStatus("sheetJoinStatus", "Vali kõik kolm välja enne ühendamist.");
-    return;
-  }
-  const target = resolveJoinTarget(targetId);
-  if (!target) {
-    setStatus("sheetJoinStatus", "Valitud kaardikihti ei leitud.");
-    return;
-  }
-
-  const lookup = new Map();
-  sheetState.rows.forEach(row => {
-    const key = normalizeJoinKey(row[keyColumn]);
-    if (key) lookup.set(key, row);
-  });
-
-  const matchedKeys = new Set();
-  let matchedCount = 0;
-
-  target.features.forEach(feature => {
-    const rawValue = feature.properties ? feature.properties[targetField] : undefined;
-    const key = normalizeJoinKey(rawValue);
-    const row = key ? lookup.get(key) : null;
-    if (row) {
-      feature.properties = { ...feature.properties, ...row };
-      matchedKeys.add(key);
-      matchedCount++;
-    }
-  });
-
-  const unmatchedSheetRows = sheetState.rows.filter(row => {
-    const key = normalizeJoinKey(row[keyColumn]);
-    return key && !matchedKeys.has(key);
-  });
-
-  if (target.kind === "my") {
-    target.entry.fields = collectFieldNamesFromFeatures(target.entry.rawFeatures);
-    renderMyLayersList();
-    renderMyLayerForCurrentView(target.entry);
-    refreshSearchFieldOptions();
-  } else {
-    refreshAllEnabledPriaLayers();
-  }
-
-  let msg = `${matchedCount} kaardiobjekti ühendatud Sheeti andmetega.`;
-  if (unmatchedSheetRows.length > 0) {
-    const sample = unmatchedSheetRows.slice(0, 5).map(r => r[keyColumn]).join(", ");
-    msg += ` ${unmatchedSheetRows.length} Sheeti reale ei leitud kaardilt vastavat objekti (nt: ${sample}${unmatchedSheetRows.length > 5 ? ", ..." : ""}).`;
-  }
-  setStatus("sheetJoinStatus", msg);
-}
-
-function normalizeJoinKey(value) {
-  if (value === undefined || value === null) return "";
-  return String(value).trim().toLowerCase();
-}
-
-function setupSheetAutoRefresh(ms) {
-  clearInterval(sheetState.timerHandle);
-  sheetState.timerHandle = null;
-  if (ms > 0) {
-    sheetState.timerHandle = setInterval(async () => {
-      if (sheetState.source === "repofile") await loadRepoFileData(true);
-      else await loadSheetData(true);
-      performSheetJoin();
-    }, ms);
   }
 }
 
