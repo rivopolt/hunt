@@ -288,6 +288,30 @@
         "group_code": "9393",
         "registered_at": "2026-08-16T21:25:11.174Z"
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            27.03489303588869,
+            58.243416198232715
+          ],
+          [
+            27.030944824218764,
+            58.240344254287585
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "hundilipud",
+        "date": "2026-08-17",
+        "remarks": "",
+        "registrant": "DJ",
+        "group_code": "9393",
+        "registered_at": "2026-08-16T21:25:42.737Z"
+      }
     }
   ]
 }
