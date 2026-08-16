@@ -22,6 +22,34 @@
         "group_code": "1312",
         "registrant": ""
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            27.075837850570682,
+            58.26486156713336
+          ],
+          [
+            27.075033187866214,
+            58.26459633121459
+          ],
+          [
+            27.072694301605228,
+            58.264635834562355
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "hundilipud",
+        "date": "2026-08-16",
+        "remarks": "",
+        "registrant": "RP",
+        "group_code": "9797",
+        "registered_at": "2026-08-16T20:26:49.425Z"
+      }
     }
   ]
 }
