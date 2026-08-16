@@ -52,7 +52,7 @@ const CONFIG = {
      tühi, näitab rakendus salvestamisel selget veateadet.
   ------------------------------------------------------------------- */
   dataUrl: "data/registrations_all.geojson",
-  apiUrl: "",  // nt "https://jaljed-api.SINU-NIMI.workers.dev"
+  apiUrl: "https://jaljed-api.rivopolt.workers.dev",
 
   tracks: {
     species: [
