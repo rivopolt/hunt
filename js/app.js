@@ -72,6 +72,7 @@ function init() {
   setupModals();
 
   loadSharedDataset();
+  logPresence();
 
   map.on("moveend", debounce(() => {
     refreshAllEnabledPriaLayers();
@@ -164,33 +165,85 @@ function updateBaseLayerUISync(id) {
 }
 
 /* ---------------------------------------------------------------------- */
-/* GRUPI VALIK (startup gate)                                              */
+/* GRUPI VALIK (kuni 5 gruppi: liitu, halda, eemalda)                       */
 /* ---------------------------------------------------------------------- */
+const MAX_GROUPS = 5;
 let pendingNewGroupCode = null;
+let groupGateMode = "initial";  // "initial" (esimene seadistus) | "manage" (lisamine/haldus hiljem)
+
+/* ---- Salvestus (kuni 5 liidetud gruppi + üks aktiivne) ---- */
+function getJoinedGroups() {
+  try {
+    const arr = JSON.parse(localStorage.getItem("jaljedGroups") || "[]");
+    return Array.isArray(arr) ? arr.filter(c => /^\d{4}$/.test(c)) : [];
+  } catch (e) { return []; }
+}
+function saveJoinedGroups(groups) {
+  localStorage.setItem("jaljedGroups", JSON.stringify(groups));
+}
+function getActiveGroup() {
+  const g = localStorage.getItem("jaljedActiveGroup");
+  return g && /^\d{4}$/.test(g) ? g : null;
+}
+function setActiveGroupCode(code) {
+  localStorage.setItem("jaljedActiveGroup", code || "");
+  currentGroupCode = code;
+  updateGroupBadge();
+}
+function isAdminUser() {
+  return getJoinedGroups().includes(CONFIG.adminGroupCode);
+}
+
+// One-time migration from the old single-group storage key.
+function migrateOldGroupStorage() {
+  const old = localStorage.getItem("jaljedGroupCode");
+  if (old && /^\d{4}$/.test(old) && getJoinedGroups().length === 0) {
+    saveJoinedGroups([old]);
+    localStorage.setItem("jaljedActiveGroup", old);
+  }
+  localStorage.removeItem("jaljedGroupCode");
+}
 
 function initGroupGate() {
+  migrateOldGroupStorage();
+
   document.getElementById("groupGateCloseBtn").addEventListener("click", hideGroupGate);
   document.getElementById("groupGateStartBtn").addEventListener("click", handleGroupGateStart);
   document.getElementById("groupGateJoinShowBtn").addEventListener("click", () => showGroupGateStep("join"));
   document.getElementById("groupGateJoinBackBtn").addEventListener("click", () => showGroupGateStep("choose"));
   document.getElementById("groupGateJoinConfirmBtn").addEventListener("click", handleGroupGateJoinConfirm);
   document.getElementById("groupGateCreatedContinueBtn").addEventListener("click", handleGroupGateCreatedContinue);
-  document.getElementById("groupBadgeBtn").addEventListener("click", () => openGroupGate(false));
+  document.getElementById("groupGateChooseBackBtn").addEventListener("click", () => {
+    showGroupGateStep("manage");
+    renderGroupGateList();
+  });
+  document.getElementById("groupGateAddBtn").addEventListener("click", () => showGroupGateStep("choose"));
+  document.getElementById("groupBadgeBtn").addEventListener("click", openGroupGate);
+  document.getElementById("groupBadgeBtnOuter").addEventListener("click", openGroupGate);
 
-  const saved = localStorage.getItem("jaljedGroupCode");
-  if (saved && /^\d{4}$/.test(saved)) {
-    currentGroupCode = saved;
-    updateGroupBadge();
+  const groups = getJoinedGroups();
+  if (groups.length > 0) {
+    let active = getActiveGroup();
+    if (!active || !groups.includes(active)) active = groups[0];
+    setActiveGroupCode(active);
     init();
   } else {
-    openGroupGate(true);
+    openGroupGate();
   }
 }
 
-function openGroupGate(mandatory) {
+function openGroupGate() {
   document.getElementById("groupGateOverlay").classList.remove("hidden");
-  document.getElementById("groupGateCloseBtn").classList.toggle("hidden", mandatory);
-  showGroupGateStep("choose");
+  const groups = getJoinedGroups();
+  document.getElementById("groupGateCloseBtn").classList.toggle("hidden", groups.length === 0);
+  if (groups.length > 0) {
+    groupGateMode = "manage";
+    showGroupGateStep("manage");
+    renderGroupGateList();
+  } else {
+    groupGateMode = "initial";
+    showGroupGateStep("choose");
+  }
 }
 
 function hideGroupGate() {
@@ -198,12 +251,80 @@ function hideGroupGate() {
 }
 
 function showGroupGateStep(step) {
-  const labels = { choose: "Choose", created: "Created", join: "Join" };
+  const labels = { choose: "Choose", created: "Created", join: "Join", manage: "Manage" };
   Object.keys(labels).forEach(s => {
     document.getElementById(`groupGateStep${labels[s]}`).classList.toggle("hidden", s !== step);
   });
   document.getElementById("groupGateJoinError").classList.add("hidden");
   document.getElementById("groupGateCodeInput").value = "";
+  document.getElementById("groupGateChooseBackBtn").classList.toggle("hidden", !(step === "choose" && groupGateMode === "manage"));
+
+  if (step === "choose") {
+    const title = document.getElementById("groupGateChooseTitle");
+    const subtitle = document.getElementById("groupGateChooseSubtitle");
+    if (groupGateMode === "manage") {
+      title.textContent = "Lisa grupp";
+      subtitle.textContent = "Alusta uut gruppi või liitu olemasoleva grupikoodiga.";
+    } else {
+      title.textContent = "Tere tulemast!";
+      subtitle.textContent = "Jäljed ja hundilipud on nähtavad ainult sinu enda grupi liikmetele. Alusta uut gruppi või liitu olemasolevaga.";
+    }
+  }
+}
+
+function renderGroupGateList() {
+  const groups = getJoinedGroups();
+  const active = getActiveGroup();
+  const listEl = document.getElementById("groupGateList");
+  listEl.innerHTML = "";
+
+  groups.forEach(code => {
+    const isActive = code === active;
+    const row = document.createElement("div");
+    row.className = "groupGateRow" + (isActive ? " active" : "");
+    row.innerHTML = `
+      <span class="groupGateRowCode">${escapeHtml(code)}${code === CONFIG.adminGroupCode ? " (admin)" : ""}</span>
+      <span class="groupGateRowActiveLabel">${isActive ? "✓ aktiivne" : "vali aktiivseks"}</span>
+      <button class="groupGateRowRemove" title="Eemalda grupp">✕</button>
+    `;
+    row.querySelector(".groupGateRowActiveLabel").addEventListener("click", (e) => {
+      e.stopPropagation();
+      activateGroup(code);
+    });
+    row.addEventListener("click", () => activateGroup(code));
+    row.querySelector(".groupGateRowRemove").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeGroup(code);
+    });
+    listEl.appendChild(row);
+  });
+
+  document.getElementById("groupGateAddBtn").classList.toggle("hidden", groups.length >= MAX_GROUPS);
+  document.getElementById("groupGateMaxNote").classList.toggle("hidden", groups.length < MAX_GROUPS);
+}
+
+function activateGroup(code) {
+  setActiveGroupCode(code);
+  renderGroupGateList();
+  loadSharedDataset();
+}
+
+function removeGroup(code) {
+  const groups = getJoinedGroups().filter(g => g !== code);
+  saveJoinedGroups(groups);
+
+  if (getActiveGroup() === code) {
+    setActiveGroupCode(groups[0] || null);
+  }
+
+  if (groups.length === 0) {
+    groupGateMode = "initial";
+    document.getElementById("groupGateCloseBtn").classList.add("hidden");
+    showGroupGateStep("choose");
+  } else {
+    renderGroupGateList();
+  }
+  loadSharedDataset();
 }
 
 function handleGroupGateStart() {
@@ -217,7 +338,7 @@ function handleGroupGateStart() {
 }
 
 function handleGroupGateCreatedContinue() {
-  setActiveGroup(pendingNewGroupCode);
+  commitGroupJoin(pendingNewGroupCode);
 }
 
 function handleGroupGateJoinConfirm() {
@@ -228,30 +349,59 @@ function handleGroupGateJoinConfirm() {
     errEl.classList.remove("hidden");
     return;
   }
-  setActiveGroup(val);
+  commitGroupJoin(val);
 }
 
-function setActiveGroup(code) {
-  currentGroupCode = code;
-  localStorage.setItem("jaljedGroupCode", code);
-  updateGroupBadge();
-  hideGroupGate();
-  if (!map) {
-    init();
+function commitGroupJoin(code) {
+  let groups = getJoinedGroups();
+  if (!groups.includes(code)) {
+    if (groups.length >= MAX_GROUPS) {
+      notify(`Maksimaalselt ${MAX_GROUPS} gruppi korraga. Eemalda mõni grupp enne uue lisamist.`);
+      showGroupGateStep("manage");
+      renderGroupGateList();
+      return;
+    }
+    groups = [...groups, code];
+    saveJoinedGroups(groups);
+  }
+  setActiveGroupCode(code);
+
+  if (groupGateMode === "initial") {
+    hideGroupGate();
+    if (!map) {
+      init();
+    } else {
+      loadSharedDataset();
+      logPresence();
+    }
   } else {
+    showGroupGateStep("manage");
+    renderGroupGateList();
     loadSharedDataset();
+    logPresence();
   }
 }
 
 function updateGroupBadge() {
-  const badge = document.getElementById("groupBadgeBtn");
-  const isAdmin = currentGroupCode === CONFIG.adminGroupCode;
-  badge.textContent = isAdmin ? "Grupp: 1312 (admin)" : `Grupp: ${currentGroupCode}`;
+  const groups = getJoinedGroups();
+  const active = getActiveGroup();
+  let text;
+  if (!active) {
+    text = "Grupp: —";
+  } else {
+    text = active === CONFIG.adminGroupCode ? "Grupp: 1312 (admin)" : `Grupp: ${active}`;
+    if (groups.length > 1) text += ` (+${groups.length - 1})`;
+  }
+  document.getElementById("groupBadgeBtn").textContent = text;
+  document.getElementById("groupBadgeBtnOuter").textContent = text;
 }
 
+// Visible if the feature belongs to ANY group the person has joined —
+// admin membership (group 1312) bypasses this and sees everything.
 function isVisibleToCurrentGroup(feature) {
-  if (currentGroupCode === CONFIG.adminGroupCode) return true;
-  return feature.properties && feature.properties.group_code === currentGroupCode;
+  if (isAdminUser()) return true;
+  const code = feature.properties && feature.properties.group_code;
+  return getJoinedGroups().includes(code);
 }
 
 function todayIsoDate(offsetDays = 0) {
@@ -294,7 +444,9 @@ async function loadSharedDataset() {
     tracksLayerGroup.clearLayers();
     hundilipudLayerGroup.clearLayers();
     sharedDataset = (geojson.features || []).map(feature => {
-      const kind = feature.properties && feature.properties.feature_type === "hundilipud" ? "hundilipud" : "track";
+      const ft = feature.properties && feature.properties.feature_type;
+      if (ft === "presence") return { feature, kind: "presence", group: null };
+      const kind = ft === "hundilipud" ? "hundilipud" : "track";
       const group = kind === "hundilipud" ? renderHundilipudFeature(feature) : renderTrackFeature(feature);
       return { feature, kind, group };
     });
@@ -303,6 +455,7 @@ async function loadSharedDataset() {
     hlStatusEl.textContent = "Laetud.";
     applyTracksFilter();
     applyHundilipudFilter();
+    refreshGroupStats();
   } catch (err) {
     tracksStatusEl.textContent = "Ei õnnestunud laadida.";
     hlStatusEl.textContent = "Ei õnnestunud laadida.";
@@ -326,14 +479,114 @@ async function submitFeatureToServer(feature, statusElId) {
     });
     const result = await resp.json().catch(() => ({}));
     if (!resp.ok || !result.ok) throw new Error(result.error || `HTTP ${resp.status}`);
-    statusEl.textContent = "Salvestatud — nähtav kõigile grupi liikmetele.";
-    await loadSharedDataset();
+
+    // Show it on the map right away instead of reloading from the
+    // server file — GitHub Pages can take up to a minute to republish
+    // after the commit, so an immediate reload was fetching the OLD
+    // file and making the just-drawn element flash and vanish.
+    const kind = feature.properties.feature_type === "hundilipud" ? "hundilipud" : "track";
+    addFeatureLocallyAndDisplay(feature, kind);
+
+    statusEl.textContent = "Salvestatud! Nähtav kohe sinu kaardil, ja mõne hetke pärast (kui GitHub Pages värskendub) ka teistel seadmetel.";
     return true;
   } catch (err) {
     statusEl.textContent = "Salvestamine ebaõnnestus: " + err.message;
     console.warn("submitFeatureToServer failed:", err);
     return false;
   }
+}
+
+// Adds a just-saved feature straight into the in-memory dataset and
+// re-renders it, without waiting on a server round-trip.
+function addFeatureLocallyAndDisplay(feature, kind) {
+  const group = kind === "hundilipud" ? renderHundilipudFeature(feature) : renderTrackFeature(feature);
+  sharedDataset.push({ feature, kind, group });
+  if (kind === "track") applyTracksFilter(); else applyHundilipudFilter();
+  refreshGroupStats();
+}
+
+/* ---------------------------------------------------------------------- */
+/* KOHALOLU / STATISTIKA                                                   */
+/* ---------------------------------------------------------------------- */
+/* A once-per-day-per-device "I'm here" ping, used only to estimate how
+   many distinct devices/logins a group has had. It carries no location
+   (geometry: null) — GeoJSON explicitly allows an unlocated Feature. */
+function getDeviceId() {
+  let id = localStorage.getItem("jaljedDeviceId");
+  if (!id) {
+    id = "dev-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    localStorage.setItem("jaljedDeviceId", id);
+  }
+  return id;
+}
+
+async function logPresence() {
+  if (!CONFIG.apiUrl || !currentGroupCode) return;
+  const today = todayIsoDate();
+  const dedupKey = `${today}:${currentGroupCode}`;
+  if (localStorage.getItem("jaljedPresenceLogged") === dedupKey) return; // already pinged today for this group
+
+  const feature = {
+    type: "Feature",
+    geometry: null,
+    properties: {
+      feature_type: "presence",
+      device_id: getDeviceId(),
+      group_code: currentGroupCode,
+      date: today,
+      registered_at: new Date().toISOString()
+    }
+  };
+
+  try {
+    const resp = await fetch(`${CONFIG.apiUrl}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature })
+    });
+    const result = await resp.json().catch(() => ({}));
+    if (resp.ok && result.ok) {
+      localStorage.setItem("jaljedPresenceLogged", dedupKey);
+      sharedDataset.push({ feature, kind: "presence", group: null });
+      refreshGroupStats();
+    }
+  } catch (err) {
+    console.warn("logPresence failed:", err);
+  }
+}
+
+// Approximate, low-effort stats for the current group (or, for the
+// admin group, across everything): distinct devices seen, total
+// "logins" (once-a-day pings), how many tracks/hundilipud lines exist
+// in total, and the most recent activity timestamp.
+function refreshGroupStats() {
+  const el = id => document.getElementById(id);
+  if (!el("statsDevices")) return; // stats panel not in the DOM yet
+
+  const relevant = sharedDataset.filter(e => isVisibleToCurrentGroup(e.feature));
+  const deviceIds = new Set();
+  let logins = 0, trackCount = 0, hundilipudCount = 0, lastActivity = null;
+
+  relevant.forEach(e => {
+    const props = e.feature.properties || {};
+    if (e.kind === "presence") {
+      logins++;
+      if (props.device_id) deviceIds.add(props.device_id);
+    } else if (e.kind === "track") {
+      trackCount++;
+    } else if (e.kind === "hundilipud") {
+      hundilipudCount++;
+    }
+    if (props.registered_at && (!lastActivity || props.registered_at > lastActivity)) {
+      lastActivity = props.registered_at;
+    }
+  });
+
+  el("statsDevices").textContent = deviceIds.size;
+  el("statsLogins").textContent = logins;
+  el("statsTracks").textContent = trackCount;
+  el("statsHundilipud").textContent = hundilipudCount;
+  el("statsLastActivity").textContent = lastActivity ? new Date(lastActivity).toLocaleString("et-EE") : "—";
 }
 
 /* ---------------------------------------------------------------------- */
@@ -587,7 +840,7 @@ function trackPopupHtml(props) {
   if (props.geom_type === "line") html += `Suund: ${escapeHtml(dir ? dir.label : "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
   if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
-  if (currentGroupCode === CONFIG.adminGroupCode) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
+  if (isAdminUser()) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
   return html;
 }
 
@@ -829,7 +1082,7 @@ function hundilipudPopupHtml(props) {
   html += `Kuupäev: ${escapeHtml(props.date || "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
   if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
-  if (currentGroupCode === CONFIG.adminGroupCode) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
+  if (isAdminUser()) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
   return html;
 }
 

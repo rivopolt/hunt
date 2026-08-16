@@ -42,17 +42,28 @@
 </head>
 <body>
 
-<!-- GRUPI VALIK: käivitusdialoog, piirab kes näeb milliseid jälgi/liine -->
+<!-- GRUPI VALIK: käivitusdialoog + halduspaneel, piirab kes näeb milliseid jälgi/liine -->
 <div id="groupGateOverlay" class="groupGateOverlay hidden">
   <div class="groupGateBox">
     <button id="groupGateCloseBtn" class="smallIconBtn hidden" title="Sulge">✕</button>
 
+    <div id="groupGateStepManage" class="groupGateStep hidden">
+      <h2>Minu grupid</h2>
+      <p class="smallNote">Näed korraga oma kõigi liidetud gruppide jälgi ja
+      liine. Uued jäljed/liinid salvestatakse alati aktiivsesse (märgitud)
+      gruppi.</p>
+      <div id="groupGateList" class="groupGateList"></div>
+      <button id="groupGateAddBtn" class="wideBtn secondaryBtn">➕ Lisa grupp</button>
+      <p id="groupGateMaxNote" class="smallNote hidden">Maksimaalselt 5 gruppi korraga — eemalda mõni enne uue lisamist.</p>
+    </div>
+
     <div id="groupGateStepChoose" class="groupGateStep">
-      <h2>Tere tulemast!</h2>
-      <p class="smallNote">Jäljed ja hundilipud on nähtavad ainult sinu enda grupi
-      liikmetele. Alusta uut gruppi või liitu olemasolevaga.</p>
+      <h2 id="groupGateChooseTitle">Tere tulemast!</h2>
+      <p id="groupGateChooseSubtitle" class="smallNote">Jäljed ja hundilipud on nähtavad
+      ainult sinu enda grupi liikmetele. Alusta uut gruppi või liitu olemasolevaga.</p>
       <button id="groupGateStartBtn" class="wideBtn">➕ Alusta gruppi</button>
       <button id="groupGateJoinShowBtn" class="wideBtn secondaryBtn">🔑 Liitu grupiga</button>
+      <button id="groupGateChooseBackBtn" class="linkBtn hidden">← Tagasi minu gruppide juurde</button>
     </div>
 
     <div id="groupGateStepCreated" class="groupGateStep hidden">
@@ -150,6 +161,25 @@
         </div>
       </section>
 
+      <!-- STATISTIKA -->
+      <section class="ctrlSection">
+        <div class="sectionHeaderRow">
+          <button class="collapseBtn" data-target="body-stats" title="Ahenda/laienda">▾</button>
+          <h2>Statistika
+            <button class="infoIconBtn small" data-info="statsInfo">ⓘ</button>
+          </h2>
+        </div>
+        <div class="sectionBody" id="body-stats">
+          <table class="statsTable">
+            <tr><td>Seadmeid grupis</td><td id="statsDevices">—</td></tr>
+            <tr><td>Sisenemisi kokku</td><td id="statsLogins">—</td></tr>
+            <tr><td>Ulukite jälgi kokku</td><td id="statsTracks">—</td></tr>
+            <tr><td>Hundilipu liine kokku</td><td id="statsHundilipud">—</td></tr>
+            <tr><td>Viimane tegevus</td><td id="statsLastActivity">—</td></tr>
+          </table>
+        </div>
+      </section>
+
       <!-- PRIA WFS -->
       <section class="ctrlSection">
         <div class="sectionHeaderRow">
@@ -218,7 +248,10 @@
     </div>
   </aside>
 
-  <button id="panelOpenerBtn" title="Näita kihtide paneeli">☰ Kihid</button>
+  <div id="topLeftControls">
+    <button id="panelOpenerBtn" title="Näita kihtide paneeli">☰ Kihid</button>
+    <button id="groupBadgeBtnOuter" class="groupBadgeBtn groupBadgeBtnOuter" title="Vaheta gruppi">Grupp: —</button>
+  </div>
 
   <!-- RIGHT: map -->
   <main id="mapPanel">
@@ -352,6 +385,15 @@ ulukite jälgede puhul: "💾 Salvesta liin" saadab kirje otse serverisse (ühte
 faili ei looda kohalikult), nähtav on ainult sinu enda grupi kirjed, ja
 vaikimisi kuvatakse ainult tänane päev — muuda kiirnuppude või
 kuupäevaväljadega.</p></template>
+
+<template id="tpl-statsInfo"><h3>Statistika</h3>
+<p>Näitab sinu praeguse grupi kohta lihtsat ülevaadet: mitu erinevat seadet
+on grupiga liitunud, mitu korda on sisse logitud (üks "sisenemine" seadme
+kohta päevas), ning mitu jälge/hundilipu liini on grupis kokku salvestatud.</p>
+<p class="smallNote">See on ligikaudne arvestus, mitte täpne kasutajate
+loendus — seade tuvastatakse brauseris hoitava juhusliku ID järgi, mis
+kaob, kui brauseri andmed kustutada või lülitud teise brauserisse/seadmesse.
+Administraatorigrupi (1312) statistika kokkuvõte hõlmab kõiki gruppe kokku.</p></template>
 
 <template id="tpl-priaInfo"><h3>PRIA põllumassiivid</h3>
 <p>Vajuta "↻ Lae kihtide loend", et tuua PRIA WFS-teenusest saadaolevad kihid.

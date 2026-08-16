@@ -186,12 +186,22 @@ html, body {
 }
 .smallLoadBtn:hover { background: #eef4ff; }
 
-/* Opener button shown only when panel is collapsed */
-#panelOpenerBtn {
+/* Opener button + group-code badge, shown top-left whenever the panel
+   is collapsed (which is the default state) — this is the one place
+   guaranteed visible regardless of screen size, so the group code goes
+   here too rather than only inside the panel header. */
+#topLeftControls {
   position: absolute;
   top: 12px;
   left: 12px;
   z-index: 900;
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+#layerPanel.collapsed ~ #topLeftControls { display: flex; }
+
+#panelOpenerBtn {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -199,9 +209,11 @@ html, body {
   font-size: 14px;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-  display: none;
 }
-#layerPanel.collapsed ~ #panelOpenerBtn { display: block; }
+
+.groupBadgeBtnOuter {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
 
 /* ---------------- RIGHT: MAP ---------------- */
 #mapPanel {
@@ -746,17 +758,17 @@ html, body {
   padding: 1px 5px;
 }
 
-/* ---------------- EANS overlay sync button ---------------- */
+/* ---------------- Generic subtle link-style button (used in group gate) ---------------- */
 .linkBtn {
   background: none;
-  border: 1px solid rgba(255,255,255,0.4);
-  color: #fff;
+  border: none;
+  color: var(--accent);
   border-radius: 6px;
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
 }
-.linkBtn:hover { background: rgba(255,255,255,0.15); }
+.linkBtn:hover { text-decoration: underline; }
 
 /* ---------------- Warning banner (e.g. base layer tile failures) ---------------- */
 .warningBanner {
@@ -943,3 +955,42 @@ html, body {
 }
 .quickFilterBtn:hover { background: #eef4ff; }
 .quickFilterBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.statsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.statsTable td { padding: 4px 2px; border-bottom: 1px solid var(--border); }
+.statsTable td:first-child { color: var(--text-muted); }
+.statsTable td:last-child { text-align: right; font-weight: 600; white-space: nowrap; }
+
+/* Grupihalduse nimekiri (Minu grupid) */
+.groupGateList {
+  margin: 10px 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.groupGateRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.groupGateRow:hover { background: #f7f9fc; }
+.groupGateRow.active { border-color: var(--accent); background: #eef4ff; }
+.groupGateRowCode { font-weight: 700; letter-spacing: 1px; }
+.groupGateRowActiveLabel { font-size: 12px; color: var(--text-muted); flex: 1; text-align: right; }
+.groupGateRow.active .groupGateRowActiveLabel { color: var(--accent); font-weight: 600; }
+.groupGateRowRemove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: #999;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.groupGateRowRemove:hover { color: #c00; }
+
