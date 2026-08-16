@@ -138,6 +138,30 @@
         "group_code": "8433",
         "registered_at": "2026-08-16T20:30:12.969Z"
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            27.07391738891602,
+            58.267575888689485
+          ],
+          [
+            27.063746452331547,
+            58.26825302590127
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "hundilipud",
+        "date": "2026-08-16",
+        "remarks": "",
+        "registrant": "RP",
+        "group_code": "9393",
+        "registered_at": "2026-08-16T20:52:39.047Z"
+      }
     }
   ]
 }
