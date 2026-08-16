@@ -53,11 +53,18 @@ function base64ToUtf8(b64) {
 }
 
 function isValidFeature(f) {
-  if (!f || f.type !== "Feature" || !f.geometry || !f.properties) return false;
-  if (!["Point", "LineString"].includes(f.geometry.type)) return false;
-  if (!Array.isArray(f.geometry.coordinates)) return false;
+  if (!f || f.type !== "Feature" || !f.properties) return false;
+  const ft = f.properties.feature_type;
+  if (!["track", "hundilipud", "presence"].includes(ft)) return false;
   if (typeof f.properties.group_code !== "string" || !/^\d{4}$/.test(f.properties.group_code)) return false;
-  if (!["track", "hundilipud"].includes(f.properties.feature_type)) return false;
+
+  // "presence" is a lightweight once-a-day device ping used only for the
+  // group statistics panel — it has no location, so geometry is null.
+  if (ft === "presence") {
+    return f.geometry === null || f.geometry === undefined;
+  }
+  if (!f.geometry || !["Point", "LineString"].includes(f.geometry.type)) return false;
+  if (!Array.isArray(f.geometry.coordinates)) return false;
   return true;
 }
 
@@ -100,7 +107,7 @@ async function appendFeature(env, feature) {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: `Lisa ${feature.properties.feature_type === "hundilipud" ? "hundilipud" : "jälg"} (grupp ${feature.properties.group_code})`,
+        message: `Lisa ${{ hundilipud: "hundilipud", presence: "sisenemine" }[feature.properties.feature_type] || "jälg"} (grupp ${feature.properties.group_code})`,
         content: newContent,
         sha: meta.sha,
         branch,
