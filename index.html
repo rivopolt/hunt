@@ -161,15 +161,17 @@
         </div>
       </section>
 
-      <!-- STATISTIKA -->
+      <!-- GRUPI STATISTIKA -->
       <section class="ctrlSection">
         <div class="sectionHeaderRow">
           <button class="collapseBtn" data-target="body-stats" title="Ahenda/laienda">▾</button>
-          <h2>Statistika
+          <h2>Grupi statistika
             <button class="infoIconBtn small" data-info="statsInfo">ⓘ</button>
           </h2>
         </div>
         <div class="sectionBody" id="body-stats">
+          <label class="smallLabel" for="statsGroupSelect">Grupp:</label>
+          <select id="statsGroupSelect"></select>
           <table class="statsTable">
             <tr><td>Seadmeid grupis</td><td id="statsDevices">—</td></tr>
             <tr><td>Sisenemisi kokku</td><td id="statsLogins">—</td></tr>
@@ -269,6 +271,7 @@
           <span>Registreeri jälg</span>
           <button id="trackRegisterCloseBtn" class="smallIconBtn" title="Sulge">✕</button>
         </div>
+        <div id="trackActiveGroupNote" class="activeGroupNote"></div>
 
         <div class="sourceToggle">
           <label><input type="radio" name="trackGeomType" value="point"> Punkt</label>
@@ -314,6 +317,7 @@
           <span>Hundilipud</span>
           <button id="hundilipudCloseBtn" class="smallIconBtn" title="Sulge">✕</button>
         </div>
+        <div id="hundilipudActiveGroupNote" class="activeGroupNote"></div>
 
         <p class="smallNote">Joonista hundilippude liin kaardile — kuvatakse punase
         katkendliku joonena.</p>
@@ -386,14 +390,17 @@ faili ei looda kohalikult), nähtav on ainult sinu enda grupi kirjed, ja
 vaikimisi kuvatakse ainult tänane päev — muuda kiirnuppude või
 kuupäevaväljadega.</p></template>
 
-<template id="tpl-statsInfo"><h3>Statistika</h3>
-<p>Näitab sinu praeguse grupi kohta lihtsat ülevaadet: mitu erinevat seadet
-on grupiga liitunud, mitu korda on sisse logitud (üks "sisenemine" seadme
-kohta päevas), ning mitu jälge/hundilipu liini on grupis kokku salvestatud.</p>
+<template id="tpl-statsInfo"><h3>Grupi statistika</h3>
+<p>Vali ülalt rippmenüüst, kelle andmeid vaadata: "Kõik minu grupid" (kõigi
+sinu liidetud gruppide kokkuvõte) või mõni konkreetne grupp eraldi. Näitab
+lihtsat ülevaadet: mitu erinevat seadet on grupiga liitunud, mitu korda on
+sisse logitud (üks "sisenemine" seadme kohta päevas), ning mitu jälge/
+hundilipu liini on grupis kokku salvestatud.</p>
 <p class="smallNote">See on ligikaudne arvestus, mitte täpne kasutajate
 loendus — seade tuvastatakse brauseris hoitava juhusliku ID järgi, mis
 kaob, kui brauseri andmed kustutada või lülitud teise brauserisse/seadmesse.
-Administraatorigrupi (1312) statistika kokkuvõte hõlmab kõiki gruppe kokku.</p></template>
+Administraatorigrupp (1312) näeb rippmenüüs kõiki süsteemis olevaid gruppe,
+mitte ainult enda liidetuid — "Kõik grupid" näitab siis absoluutselt kõike.</p></template>
 
 <template id="tpl-priaInfo"><h3>PRIA põllumassiivid</h3>
 <p>Vajuta "↻ Lae kihtide loend", et tuua PRIA WFS-teenusest saadaolevad kihid.

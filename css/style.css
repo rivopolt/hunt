@@ -929,12 +929,23 @@ html, body {
   border: 1px solid var(--border);
   background: #fff;
   border-radius: 14px;
-  padding: 3px 10px;
+  padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
-  white-space: nowrap;
+  max-width: 220px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.4;
 }
 .groupBadgeBtn:hover { background: #eef4ff; }
+
+.badgeActiveGroup {
+  color: var(--accent);
+  background: #eef4ff;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.badgeInactiveGroup { color: var(--text-muted); }
 
 /* ==========================================================================
    KIIRFILTRID (Täna / Eile / Nädal / Kõik)
@@ -960,6 +971,16 @@ html, body {
 .statsTable td { padding: 4px 2px; border-bottom: 1px solid var(--border); }
 .statsTable td:first-child { color: var(--text-muted); }
 .statsTable td:last-child { text-align: right; font-weight: 600; white-space: nowrap; }
+
+#statsGroupSelect {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
 
 /* Grupihalduse nimekiri (Minu grupid) */
 .groupGateList {
@@ -994,3 +1015,13 @@ html, body {
 }
 .groupGateRowRemove:hover { color: #c00; }
 
+
+.activeGroupNote {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: #eef4ff;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 8px;
+}

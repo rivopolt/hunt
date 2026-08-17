@@ -70,6 +70,7 @@ function init() {
   setupCoordReadout();
   setupPanelToggle();
   setupModals();
+  setupStats();
 
   loadSharedDataset();
   logPresence();
@@ -385,15 +386,30 @@ function commitGroupJoin(code) {
 function updateGroupBadge() {
   const groups = getJoinedGroups();
   const active = getActiveGroup();
-  let text;
-  if (!active) {
-    text = "Grupp: —";
+
+  let html;
+  if (groups.length === 0) {
+    html = "Grupp: —";
   } else {
-    text = active === CONFIG.adminGroupCode ? "Grupp: 1312 (admin)" : `Grupp: ${active}`;
-    if (groups.length > 1) text += ` (+${groups.length - 1})`;
+    const parts = groups.map(g => {
+      const label = escapeHtml(g === CONFIG.adminGroupCode ? `${g} (admin)` : g);
+      return g === active ? `<strong class="badgeActiveGroup">${label}</strong>` : `<span class="badgeInactiveGroup">${label}</span>`;
+    });
+    html = "Grupid: " + parts.join(", ");
   }
-  document.getElementById("groupBadgeBtn").textContent = text;
-  document.getElementById("groupBadgeBtnOuter").textContent = text;
+  document.getElementById("groupBadgeBtn").innerHTML = html;
+  document.getElementById("groupBadgeBtnOuter").innerHTML = html;
+  updateActiveGroupNotes(active);
+}
+
+// Shown inside the "Registreeri jälg" / "Hundilipud" panels so it's
+// unmistakable which group a new drawing will be saved into.
+function updateActiveGroupNotes(active) {
+  const text = active ? `📍 Salvestatakse gruppi: ${active}` : "⚠️ Ühtegi gruppi pole valitud";
+  const trackEl = document.getElementById("trackActiveGroupNote");
+  const hundilipudEl = document.getElementById("hundilipudActiveGroupNote");
+  if (trackEl) trackEl.textContent = text;
+  if (hundilipudEl) hundilipudEl.textContent = text;
 }
 
 // Visible if the feature belongs to ANY group the person has joined —
@@ -559,11 +575,46 @@ async function logPresence() {
 // admin group, across everything): distinct devices seen, total
 // "logins" (once-a-day pings), how many tracks/hundilipud lines exist
 // in total, and the most recent activity timestamp.
+function populateStatsGroupSelect() {
+  const sel = document.getElementById("statsGroupSelect");
+  if (!sel) return;
+  const previousValue = sel.value || "all";
+
+  sel.innerHTML = "";
+  const allOpt = document.createElement("option");
+  allOpt.value = "all";
+  allOpt.textContent = isAdminUser() ? "Kõik grupid" : "Kõik minu grupid";
+  sel.appendChild(allOpt);
+
+  // Admin sees every group code that appears anywhere in the dataset;
+  // everyone else can only pick from groups they've actually joined.
+  const codes = isAdminUser()
+    ? Array.from(new Set(
+        sharedDataset.map(e => e.feature.properties && e.feature.properties.group_code).filter(Boolean)
+      )).sort()
+    : getJoinedGroups();
+
+  codes.forEach(code => {
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = code === CONFIG.adminGroupCode ? `${code} (admin)` : code;
+    sel.appendChild(opt);
+  });
+
+  if (Array.from(sel.options).some(o => o.value === previousValue)) sel.value = previousValue;
+}
+
 function refreshGroupStats() {
   const el = id => document.getElementById(id);
   if (!el("statsDevices")) return; // stats panel not in the DOM yet
 
-  const relevant = sharedDataset.filter(e => isVisibleToCurrentGroup(e.feature));
+  populateStatsGroupSelect();
+  const selectedGroup = document.getElementById("statsGroupSelect").value || "all";
+
+  const relevant = selectedGroup === "all"
+    ? sharedDataset.filter(e => isVisibleToCurrentGroup(e.feature))
+    : sharedDataset.filter(e => e.feature.properties && e.feature.properties.group_code === selectedGroup);
+
   const deviceIds = new Set();
   let logins = 0, trackCount = 0, hundilipudCount = 0, lastActivity = null;
 
@@ -587,6 +638,10 @@ function refreshGroupStats() {
   el("statsTracks").textContent = trackCount;
   el("statsHundilipud").textContent = hundilipudCount;
   el("statsLastActivity").textContent = lastActivity ? new Date(lastActivity).toLocaleString("et-EE") : "—";
+}
+
+function setupStats() {
+  document.getElementById("statsGroupSelect").addEventListener("change", refreshGroupStats);
 }
 
 /* ---------------------------------------------------------------------- */
