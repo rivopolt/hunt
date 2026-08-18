@@ -34,6 +34,8 @@ let trackDrawState = null;        // null | { type: "point"|"line", points: [lat
 let trackPreviewLayers = [];
 let hundilipudDrawState = null;   // null | { points: [latlng,...] }
 let hundilipudPreviewLayers = [];
+let trackEditEntry = null;        // null | the sharedDataset entry currently being edited
+let hundilipudEditEntry = null;   // null | the sharedDataset entry currently being edited
 
 /* ---------------------------------------------------------------------- */
 /* INIT                                                                    */
@@ -57,6 +59,11 @@ function init() {
   // asukoht" button — puts both within easy thumb-reach on mobile,
   // instead of making people reach to the top of the screen.
   L.control.zoom({ position: "bottomright" }).addTo(map);
+
+  // Scale bar: a thin light-styled line with a small distance label
+  // that updates live as you zoom — a real-world ruler while drawing
+  // Hundilipud lines or judging track distances.
+  L.control.scale({ metric: true, imperial: false, maxWidth: 120, position: "bottomleft" }).addTo(map);
 
   buildBaseLayers();
   setupBaseLayerUI();
@@ -521,6 +528,96 @@ function addFeatureLocallyAndDisplay(feature, kind) {
   refreshGroupStats();
 }
 
+// Replaces an entry in-place (used after a successful edit) — removes
+// the old rendered layer and adds the freshly rendered one.
+function replaceFeatureLocally(oldEntry, newFeature, kind) {
+  if (oldEntry.group) {
+    tracksLayerGroup.removeLayer(oldEntry.group);
+    hundilipudLayerGroup.removeLayer(oldEntry.group);
+  }
+  const idx = sharedDataset.indexOf(oldEntry);
+  const group = kind === "hundilipud" ? renderHundilipudFeature(newFeature) : renderTrackFeature(newFeature);
+  const newEntry = { feature: newFeature, kind, group };
+  if (idx !== -1) sharedDataset.splice(idx, 1, newEntry);
+  else sharedDataset.push(newEntry);
+  if (kind === "track") applyTracksFilter(); else applyHundilipudFilter();
+  refreshGroupStats();
+}
+
+// Removes an entry (used after a successful delete).
+function removeFeatureLocally(entry) {
+  if (entry.group) {
+    tracksLayerGroup.removeLayer(entry.group);
+    hundilipudLayerGroup.removeLayer(entry.group);
+  }
+  const idx = sharedDataset.indexOf(entry);
+  if (idx !== -1) sharedDataset.splice(idx, 1);
+  refreshGroupStats();
+}
+
+async function submitFeatureUpdate(originalFeature, newFeature, statusElId) {
+  const statusEl = document.getElementById(statusElId);
+  if (!CONFIG.apiUrl) {
+    statusEl.textContent = "Salvestamise API pole veel seadistatud (CONFIG.apiUrl on tühi) — vt README.md.";
+    return false;
+  }
+  statusEl.textContent = "Salvestan muudatusi serverisse...";
+  try {
+    const resp = await fetch(`${CONFIG.apiUrl}/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        match: { registered_at: originalFeature.properties.registered_at, group_code: originalFeature.properties.group_code },
+        feature: newFeature
+      })
+    });
+    const result = await resp.json().catch(() => ({}));
+    if (!resp.ok || !result.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+    statusEl.textContent = "Muudatused salvestatud!";
+    return true;
+  } catch (err) {
+    statusEl.textContent = "Muutmine ebaõnnestus: " + err.message;
+    console.warn("submitFeatureUpdate failed:", err);
+    return false;
+  }
+}
+
+async function submitFeatureDelete(feature) {
+  if (!CONFIG.apiUrl) {
+    notify("Salvestamise API pole veel seadistatud (CONFIG.apiUrl on tühi) — vt README.md.");
+    return false;
+  }
+  try {
+    const resp = await fetch(`${CONFIG.apiUrl}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        match: { registered_at: feature.properties.registered_at, group_code: feature.properties.group_code }
+      })
+    });
+    const result = await resp.json().catch(() => ({}));
+    if (!resp.ok || !result.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+    return true;
+  } catch (err) {
+    notify("Kustutamine ebaõnnestus: " + err.message);
+    console.warn("submitFeatureDelete failed:", err);
+    return false;
+  }
+}
+
+async function confirmDeleteFeature(feature, kind) {
+  const label = kind === "hundilipud" ? "hundilipud liin" : "ulukijälg";
+  const ok = await showConfirm(`Kustutada see ${label} jäädavalt kõigi grupi liikmete jaoks?`);
+  if (!ok) return;
+
+  const entry = sharedDataset.find(e =>
+    e.feature.properties.registered_at === feature.properties.registered_at &&
+    e.feature.properties.group_code === feature.properties.group_code
+  );
+  const success = await submitFeatureDelete(feature);
+  if (success && entry) removeFeatureLocally(entry);
+}
+
 /* ---------------------------------------------------------------------- */
 /* KOHALOLU / STATISTIKA                                                   */
 /* ---------------------------------------------------------------------- */
@@ -723,22 +820,30 @@ function setupTracks() {
   document.getElementById("trackCancelDrawBtn").addEventListener("click", cancelTrackDrawing);
   document.getElementById("trackSaveBtn").addEventListener("click", saveTrackRegistration);
   document.getElementById("tracksLoadBtn").addEventListener("click", loadSharedDataset);
+  document.getElementById("trackEditCancelBtn").addEventListener("click", () => {
+    exitTrackEditMode();
+    cancelTrackDrawing();
+  });
 }
 
 /* ---- Registration widget open/close ---- */
 function toggleTrackRegisterWidget() {
   const widget = document.getElementById("trackRegisterWidget");
   const opening = widget.classList.contains("hidden");
+  if (opening) openTrackRegisterWidget(); else closeTrackRegisterWidget();
+}
+
+function openTrackRegisterWidget() {
   closeHundilipudWidget();
-  widget.classList.toggle("hidden", !opening);
-  document.getElementById("trackRegisterToggleBtn").classList.toggle("active", opening);
-  if (!opening) cancelTrackDrawing();
+  document.getElementById("trackRegisterWidget").classList.remove("hidden");
+  document.getElementById("trackRegisterToggleBtn").classList.add("active");
 }
 
 function closeTrackRegisterWidget() {
   document.getElementById("trackRegisterWidget").classList.add("hidden");
   document.getElementById("trackRegisterToggleBtn").classList.remove("active");
   cancelTrackDrawing();
+  exitTrackEditMode();
 }
 
 /* ---- Drawing on the map ----
@@ -864,13 +969,28 @@ async function saveTrackRegistration() {
       pack_size: packSize,
       remarks,
       registrant,
-      group_code: currentGroupCode,
-      registered_at: new Date().toISOString()
+      group_code: trackEditEntry ? trackEditEntry.feature.properties.group_code : currentGroupCode,
+      registered_at: trackEditEntry ? trackEditEntry.feature.properties.registered_at : new Date().toISOString()
     }
   };
+  if (trackEditEntry) feature.properties.updated_at = new Date().toISOString();
 
   const trackSaveBtn = document.getElementById("trackSaveBtn");
   trackSaveBtn.disabled = true;
+
+  if (trackEditEntry) {
+    const originalFeature = trackEditEntry.feature;
+    const ok = await submitFeatureUpdate(originalFeature, feature, "trackSaveStatus");
+    if (ok) {
+      replaceFeatureLocally(trackEditEntry, feature, "track");
+      exitTrackEditMode();
+      cancelTrackDrawing();
+    } else {
+      trackSaveBtn.disabled = false;
+    }
+    return;
+  }
+
   const ok = await submitFeatureToServer(feature, "trackSaveStatus");
   if (ok) {
     cancelTrackDrawing();
@@ -881,6 +1001,62 @@ async function saveTrackRegistration() {
   }
 }
 
+/* ---- Edit mode: pre-fill the form from an existing feature, keep its
+   geometry (redrawing is optional — draw again to replace it), and
+   route Save through /update instead of /save on submit. ---- */
+function openTrackEditForm(feature) {
+  const entry = sharedDataset.find(e =>
+    e.kind === "track" &&
+    e.feature.properties.registered_at === feature.properties.registered_at &&
+    e.feature.properties.group_code === feature.properties.group_code
+  );
+  trackEditEntry = entry || { feature }; // fall back to the popup's own feature if not found in dataset
+
+  openTrackRegisterWidget();
+  const props = feature.properties;
+
+  document.querySelector(`input[name="trackGeomType"][value="${props.geom_type}"]`).checked = true;
+  document.getElementById("trackDirectionRow").classList.toggle("hidden", props.geom_type !== "line");
+  document.getElementById("trackSpeciesSelect").value = props.species;
+  document.getElementById("trackDirectionSelect").value = props.direction || "none";
+  document.getElementById("trackDateInput").value = props.date || todayIsoDate();
+  document.getElementById("trackPackSizeInput").value = props.pack_size ?? "";
+  document.getElementById("trackRemarksInput").value = props.remarks || "";
+
+  const regSel = document.getElementById("trackRegistrantSelect");
+  const otherInput = document.getElementById("trackRegistrantOtherInput");
+  if (Array.from(regSel.options).some(o => o.value === props.registrant)) {
+    regSel.value = props.registrant;
+    otherInput.classList.add("hidden");
+  } else {
+    regSel.value = "other";
+    otherInput.value = props.registrant || "";
+    otherInput.classList.remove("hidden");
+  }
+
+  // Pre-load the existing geometry so Save works without redrawing —
+  // if the person clicks "Alusta joonistamist" anyway, the normal
+  // drawing flow just overwrites this with a fresh geometry.
+  const coords = feature.geometry.coordinates;
+  trackDrawState = {
+    type: props.geom_type,
+    points: props.geom_type === "point"
+      ? [L.latLng(coords[1], coords[0])]
+      : coords.map(c => L.latLng(c[1], c[0]))
+  };
+  document.getElementById("trackSaveBtn").disabled = false;
+  document.getElementById("trackDrawHint").classList.add("hidden");
+
+  document.getElementById("trackEditBanner").classList.remove("hidden");
+  document.getElementById("trackSaveBtn").textContent = "💾 Salvesta muudatused";
+}
+
+function exitTrackEditMode() {
+  trackEditEntry = null;
+  document.getElementById("trackEditBanner").classList.add("hidden");
+  document.getElementById("trackSaveBtn").textContent = "💾 Salvesta jälg";
+}
+
 /* ---- Rendering ---- */
 function speciesConfig(id) {
   return CONFIG.tracks.species.find(s => s.id === id) || { id, label: id || "Teadmata", color: "#666" };
@@ -888,15 +1064,47 @@ function speciesConfig(id) {
 
 function trackPopupHtml(props) {
   const sp = speciesConfig(props.species);
-  const dir = CONFIG.tracks.directions.find(d => d.id === props.direction);
   let html = `<strong>${escapeHtml(sp.label)}</strong><br>`;
   html += `Kuupäev: ${escapeHtml(props.date || "—")}<br>`;
   html += `Karja suurus: ${props.pack_size ?? "—"}<br>`;
-  if (props.geom_type === "line") html += `Suund: ${escapeHtml(dir ? dir.label : "—")}<br>`;
   if (props.remarks) html += `Märkused: ${escapeHtml(props.remarks)}<br>`;
   if (props.registrant) html += `Registreerija: ${escapeHtml(props.registrant)}<br>`;
   if (isAdminUser()) html += `Grupp: ${escapeHtml(props.group_code || "—")}<br>`;
   return html;
+}
+
+// Builds the popup DOM node: the info HTML plus an Edit/Delete action
+// row wired directly to real event listeners (avoids brittle inline
+// onclick="" strings, and closes over the actual feature/kind).
+function buildFeaturePopupContent(infoHtml, feature, kind) {
+  const container = document.createElement("div");
+  container.className = "popupContent";
+  container.innerHTML = infoHtml;
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "popupActionRow";
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "popupEditBtn";
+  editBtn.textContent = "✏️ Muuda";
+  editBtn.addEventListener("click", () => {
+    map.closePopup();
+    if (kind === "hundilipud") openHundilipudEditForm(feature);
+    else openTrackEditForm(feature);
+  });
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "popupDeleteBtn";
+  delBtn.textContent = "✕ Kustuta";
+  delBtn.addEventListener("click", () => {
+    map.closePopup();
+    confirmDeleteFeature(feature, kind);
+  });
+
+  btnRow.appendChild(editBtn);
+  btnRow.appendChild(delBtn);
+  container.appendChild(btnRow);
+  return container;
 }
 
 function computeBearingDeg(from, to) {
@@ -943,7 +1151,7 @@ function renderTrackFeature(feature) {
   }
 
   const group = L.featureGroup(layers);
-  group.bindPopup(trackPopupHtml(props));
+  group.bindPopup(() => buildFeaturePopupContent(trackPopupHtml(props), feature, "track"));
   return group;
 }
 
@@ -1003,6 +1211,10 @@ function setupHundilipud() {
   document.getElementById("hundilipudCancelDrawBtn").addEventListener("click", cancelHundilipudDrawing);
   document.getElementById("hundilipudSaveBtn").addEventListener("click", saveHundilipud);
   document.getElementById("hundilipudLoadBtn").addEventListener("click", loadSharedDataset);
+  document.getElementById("hundilipudEditCancelBtn").addEventListener("click", () => {
+    exitHundilipudEditMode();
+    cancelHundilipudDrawing();
+  });
 
   document.getElementById("hundilipudDateFrom").addEventListener("change", applyHundilipudFilter);
   document.getElementById("hundilipudDateTo").addEventListener("change", applyHundilipudFilter);
@@ -1018,16 +1230,20 @@ function setupHundilipud() {
 function toggleHundilipudWidget() {
   const widget = document.getElementById("hundilipudWidget");
   const opening = widget.classList.contains("hidden");
+  if (opening) openHundilipudWidget(); else closeHundilipudWidget();
+}
+
+function openHundilipudWidget() {
   closeTrackRegisterWidget();
-  widget.classList.toggle("hidden", !opening);
-  document.getElementById("hundilipudToggleBtn").classList.toggle("active", opening);
-  if (!opening) cancelHundilipudDrawing();
+  document.getElementById("hundilipudWidget").classList.remove("hidden");
+  document.getElementById("hundilipudToggleBtn").classList.add("active");
 }
 
 function closeHundilipudWidget() {
   document.getElementById("hundilipudWidget").classList.add("hidden");
   document.getElementById("hundilipudToggleBtn").classList.remove("active");
   cancelHundilipudDrawing();
+  exitHundilipudEditMode();
 }
 
 /* ---- Drawing (line only, finished via explicit button — see track
@@ -1115,13 +1331,28 @@ async function saveHundilipud() {
       date,
       remarks,
       registrant,
-      group_code: currentGroupCode,
-      registered_at: new Date().toISOString()
+      group_code: hundilipudEditEntry ? hundilipudEditEntry.feature.properties.group_code : currentGroupCode,
+      registered_at: hundilipudEditEntry ? hundilipudEditEntry.feature.properties.registered_at : new Date().toISOString()
     }
   };
+  if (hundilipudEditEntry) feature.properties.updated_at = new Date().toISOString();
 
   const saveBtn = document.getElementById("hundilipudSaveBtn");
   saveBtn.disabled = true;
+
+  if (hundilipudEditEntry) {
+    const originalFeature = hundilipudEditEntry.feature;
+    const ok = await submitFeatureUpdate(originalFeature, feature, "hundilipudSaveStatus");
+    if (ok) {
+      replaceFeatureLocally(hundilipudEditEntry, feature, "hundilipud");
+      exitHundilipudEditMode();
+      cancelHundilipudDrawing();
+    } else {
+      saveBtn.disabled = false;
+    }
+    return;
+  }
+
   const ok = await submitFeatureToServer(feature, "hundilipudSaveStatus");
   if (ok) {
     cancelHundilipudDrawing();
@@ -1129,6 +1360,46 @@ async function saveHundilipud() {
   } else {
     saveBtn.disabled = false;
   }
+}
+
+/* ---- Edit mode (same pattern as track edit — see that comment) ---- */
+function openHundilipudEditForm(feature) {
+  const entry = sharedDataset.find(e =>
+    e.kind === "hundilipud" &&
+    e.feature.properties.registered_at === feature.properties.registered_at &&
+    e.feature.properties.group_code === feature.properties.group_code
+  );
+  hundilipudEditEntry = entry || { feature };
+
+  openHundilipudWidget();
+  const props = feature.properties;
+
+  document.getElementById("hundilipudDateInput").value = props.date || todayIsoDate();
+  document.getElementById("hundilipudRemarksInput").value = props.remarks || "";
+
+  const regSel = document.getElementById("hundilipudRegistrantSelect");
+  const otherInput = document.getElementById("hundilipudRegistrantOtherInput");
+  if (Array.from(regSel.options).some(o => o.value === props.registrant)) {
+    regSel.value = props.registrant;
+    otherInput.classList.add("hidden");
+  } else {
+    regSel.value = "other";
+    otherInput.value = props.registrant || "";
+    otherInput.classList.remove("hidden");
+  }
+
+  hundilipudDrawState = { points: feature.geometry.coordinates.map(c => L.latLng(c[1], c[0])) };
+  document.getElementById("hundilipudSaveBtn").disabled = false;
+  document.getElementById("hundilipudDrawHint").classList.add("hidden");
+
+  document.getElementById("hundilipudEditBanner").classList.remove("hidden");
+  document.getElementById("hundilipudSaveBtn").textContent = "💾 Salvesta muudatused";
+}
+
+function exitHundilipudEditMode() {
+  hundilipudEditEntry = null;
+  document.getElementById("hundilipudEditBanner").classList.add("hidden");
+  document.getElementById("hundilipudSaveBtn").textContent = "💾 Salvesta liin";
 }
 
 /* ---- Rendering ---- */
@@ -1150,7 +1421,7 @@ function renderHundilipudFeature(feature) {
     dashArray: CONFIG.hundilipud.dashArray
   });
   const group = L.featureGroup([line]);
-  group.bindPopup(hundilipudPopupHtml(feature.properties || {}));
+  group.bindPopup(() => buildFeaturePopupContent(hundilipudPopupHtml(feature.properties || {}), feature, "hundilipud"));
   return group;
 }
 
@@ -1472,7 +1743,7 @@ function toggleLiveLocation() {
       const { latitude, longitude, accuracy } = pos.coords;
       updateUserLocationMarker(latitude, longitude, accuracy);
       if (firstFix) {
-        map.setView([latitude, longitude], 16);
+        map.setView([latitude, longitude], 15);
         firstFix = false;
       } else {
         // "Follow me": keep the current position centered as it moves,

@@ -244,15 +244,20 @@ html, body {
   position: absolute;
   top: 12px;
   right: 10px;
+  bottom: 12px;
   z-index: 800;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-width: 260px;
+  pointer-events: none;
 }
+.mapTopRightControls > * { pointer-events: auto; }
 .mapQuickBaseButtons {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex-shrink: 0;
 }
 .mapQuickBtn {
   background: #fff;
@@ -275,9 +280,15 @@ html, body {
   padding: 10px 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   /* On short/mobile screens the panel (esp. "Registreeri jälg", which has
-     many fields) can be taller than the viewport, hiding the Save button
-     below the fold. Cap the height and let the panel itself scroll. */
-  max-height: calc(100vh - 90px);
+     many fields) can be taller than the remaining viewport space, hiding
+     the Save button below the fold. The parent (.mapTopRightControls) is
+     anchored top+bottom to the viewport, so this flex/min-height:0
+     combination lets the panel shrink to whatever space is actually left
+     and scroll internally for the rest — a flat vh-based max-height was
+     not enough because it didn't account for how far down the button
+     row had already pushed the panel. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -299,14 +310,14 @@ html, body {
   margin-bottom: 8px;
 }
 
-/* Small standalone "my location" button directly on the map, positioned
-   so the Leaflet zoom control (also bottom-right, see below) stacks
-   directly above it — both reachable with a thumb on mobile. Moved up
-   from the very bottom edge so it stays clear of phone gesture bars /
-   home indicators, and sits close under the zoom control. */
+/* Small standalone "my location" button directly on the map, stacked
+   directly under the Leaflet zoom control (below) — both reachable
+   with a thumb on mobile. Positioned with a small fixed gap under the
+   zoom control's resized (50px) buttons, and moved up from the very
+   bottom edge so it stays clear of phone gesture bars / home indicators. */
 .mapLocateBtn {
   position: absolute;
-  bottom: 56px;
+  bottom: 66px;
   right: 10px;
   z-index: 800;
   width: 40px;
@@ -321,18 +332,18 @@ html, body {
 .mapLocateBtn:hover { background: #eef4ff; }
 .mapLocateBtn.active { background: var(--accent); filter: brightness(1.1); }
 
-/* Leaflet's own zoom +/- control, moved to bottom-right, pushed up half
-   a button-size further than before, and resized to match the width of
-   the "📍 Minu asukoht" pin below it. */
+/* Leaflet's own zoom +/- control, bottom-right, above the location pin.
+   Buttons enlarged 1/4 (40px -> 50px) and nudged a little higher than
+   before. */
 .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-  margin: 0 10px 106px 0;
+  margin: 0 10px 116px 0;
 }
 .leaflet-control-zoom-in,
 .leaflet-control-zoom-out {
-  width: 40px !important;
-  height: 40px !important;
-  line-height: 40px !important;
-  font-size: 20px;
+  width: 50px !important;
+  height: 50px !important;
+  line-height: 50px !important;
+  font-size: 25px;
 }
 
 /* -------- User location "blue dot" (Google-Maps style) -------- */
@@ -1024,4 +1035,64 @@ html, body {
   border-radius: 6px;
   padding: 5px 8px;
   margin-bottom: 8px;
+}
+
+/* Edit/Delete buttons inside map popups (track + hundilipud) */
+.popupActionRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.popupEditBtn, .popupDeleteBtn {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.popupEditBtn {
+  border: 1px solid var(--accent);
+  background: #fff;
+  color: var(--accent);
+}
+.popupEditBtn:hover { background: #eef4ff; }
+.popupDeleteBtn {
+  border: 1px solid #c62828;
+  background: #fff;
+  color: #c62828;
+}
+.popupDeleteBtn:hover { background: #fdecea; }
+
+.editModeBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b8860b;
+  background: #fff8e1;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 8px;
+}
+.editModeBanner .linkBtn { padding: 2px 6px; white-space: nowrap; }
+
+/* Map scale bar — thin, light styling with a small distance label. */
+.leaflet-control-scale {
+  margin-bottom: 8px !important;
+  margin-left: 8px !important;
+}
+.leaflet-control-scale-line {
+  background: rgba(255,255,255,0.75);
+  border: 1px solid rgba(0,0,0,0.35);
+  border-top: none;
+  border-radius: 0 0 2px 2px;
+  box-shadow: none;
+  color: #444;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 4px 0;
 }

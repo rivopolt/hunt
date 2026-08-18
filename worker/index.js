@@ -81,13 +81,27 @@ async function githubRequest(env, path, options = {}) {
   return resp;
 }
 
-async function appendFeature(env, feature) {
+// Finds a feature by (registered_at, group_code) — registered_at is a
+// full-precision ISO timestamp set at creation time, so together with
+// the group code it's effectively a unique key without needing to add
+// or backfill a separate "id" field on every existing feature.
+function findFeatureIndex(features, match) {
+  return features.findIndex(f =>
+    f.properties &&
+    f.properties.registered_at === match.registered_at &&
+    f.properties.group_code === match.group_code
+  );
+}
+
+// Generic read-modify-write against the shared data file, retried a few
+// times in case two writes race and the second PUT's sha goes stale.
+// `mutate(features)` mutates the array in place and returns a short
+// commit-message fragment; throw inside it to abort with an error.
+async function mutateDataFile(env, mutate) {
   const filePath = env.FILE_PATH || "data/registrations_all.geojson";
   const branch = env.GITHUB_BRANCH || "main";
   const getPath = `/repos/${env.GITHUB_REPO}/contents/${filePath}?ref=${branch}`;
 
-  // Read-modify-write, retried a few times in case two saves race and
-  // the second PUT's sha goes stale.
   for (let attempt = 0; attempt < 4; attempt++) {
     const getResp = await githubRequest(env, getPath);
     if (!getResp.ok) {
@@ -100,14 +114,14 @@ async function appendFeature(env, feature) {
       throw new Error("Server file is not a valid FeatureCollection.");
     }
 
-    current.features.push(feature);
+    const commitMessage = mutate(current.features);
     const newContent = utf8ToBase64(JSON.stringify(current, null, 2) + "\n");
 
     const putResp = await githubRequest(env, `/repos/${env.GITHUB_REPO}/contents/${filePath}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: `Lisa ${{ hundilipud: "hundilipud", presence: "sisenemine" }[feature.properties.feature_type] || "jälg"} (grupp ${feature.properties.group_code})`,
+        message: commitMessage,
         content: newContent,
         sha: meta.sha,
         branch,
@@ -127,6 +141,39 @@ async function appendFeature(env, feature) {
   throw new Error("Could not save after several attempts — too many concurrent writes. Try again.");
 }
 
+function commitLabel(feature) {
+  return { hundilipud: "hundilipud", presence: "sisenemine" }[feature.properties.feature_type] || "jälg";
+}
+
+async function appendFeature(env, feature) {
+  return mutateDataFile(env, features => {
+    features.push(feature);
+    return `Lisa ${commitLabel(feature)} (grupp ${feature.properties.group_code})`;
+  });
+}
+
+async function updateFeature(env, match, newFeature) {
+  return mutateDataFile(env, features => {
+    const idx = findFeatureIndex(features, match);
+    if (idx === -1) throw new Error("Kirjet ei leitud (võib-olla juba muudetud või kustutatud).");
+    features[idx] = newFeature;
+    return `Muuda ${commitLabel(newFeature)} (grupp ${newFeature.properties.group_code})`;
+  });
+}
+
+async function deleteFeature(env, match) {
+  return mutateDataFile(env, features => {
+    const idx = findFeatureIndex(features, match);
+    if (idx === -1) throw new Error("Kirjet ei leitud (võib-olla juba kustutatud).");
+    const [removed] = features.splice(idx, 1);
+    return `Kustuta ${commitLabel(removed)} (grupp ${match.group_code})`;
+  });
+}
+
+function isValidMatch(m) {
+  return m && typeof m.registered_at === "string" && typeof m.group_code === "string" && /^\d{4}$/.test(m.group_code);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -139,16 +186,15 @@ export default {
       return json({ ok: true, service: "jaljed-api" }, 200, env);
     }
 
-    if (request.method === "POST" && url.pathname === "/save") {
-      if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+    if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+      if (request.method === "POST") {
         return json({ ok: false, error: "Worker is not configured (missing GITHUB_TOKEN/GITHUB_REPO)." }, 500, env);
       }
+    }
+
+    if (request.method === "POST" && url.pathname === "/save") {
       let body;
-      try {
-        body = await request.json();
-      } catch (e) {
-        return json({ ok: false, error: "Invalid JSON body." }, 400, env);
-      }
+      try { body = await request.json(); } catch (e) { return json({ ok: false, error: "Invalid JSON body." }, 400, env); }
       const feature = body && body.feature;
       if (!isValidFeature(feature)) {
         return json({ ok: false, error: "Invalid or incomplete feature." }, 400, env);
@@ -161,6 +207,35 @@ export default {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/update") {
+      let body;
+      try { body = await request.json(); } catch (e) { return json({ ok: false, error: "Invalid JSON body." }, 400, env); }
+      const match = body && body.match;
+      const feature = body && body.feature;
+      if (!isValidMatch(match)) return json({ ok: false, error: "Invalid match key." }, 400, env);
+      if (!isValidFeature(feature)) return json({ ok: false, error: "Invalid or incomplete feature." }, 400, env);
+      try {
+        const result = await updateFeature(env, match, feature);
+        return json({ ok: true, ...result }, 200, env);
+      } catch (err) {
+        return json({ ok: false, error: String(err.message || err) }, 502, env);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/delete") {
+      let body;
+      try { body = await request.json(); } catch (e) { return json({ ok: false, error: "Invalid JSON body." }, 400, env); }
+      const match = body && body.match;
+      if (!isValidMatch(match)) return json({ ok: false, error: "Invalid match key." }, 400, env);
+      try {
+        const result = await deleteFeature(env, match);
+        return json({ ok: true, ...result }, 200, env);
+      } catch (err) {
+        return json({ ok: false, error: String(err.message || err) }, 502, env);
+      }
+    }
+
     return json({ ok: false, error: "Not found." }, 404, env);
   },
 };
+
