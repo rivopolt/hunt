@@ -61,9 +61,12 @@ function init() {
   L.control.zoom({ position: "bottomright" }).addTo(map);
 
   // Scale bar: a thin light-styled line with a small distance label
-  // that updates live as you zoom — a real-world ruler while drawing
-  // Hundilipud lines or judging track distances.
-  L.control.scale({ metric: true, imperial: false, maxWidth: 120, position: "bottomleft" }).addTo(map);
+  // that updates live as you zoom — placed right under the button
+  // stack (Põhikaart/Ortofoto/Registreeri/Hundilipud) rather than in
+  // Leaflet's own corner-control system, so it's guaranteed visible
+  // there instead of easy to miss tucked into a map corner.
+  const scaleControl = L.control.scale({ metric: true, imperial: false, maxWidth: 120 });
+  document.getElementById("mapScaleBarSlot").appendChild(scaleControl.onAdd(map));
 
   buildBaseLayers();
   setupBaseLayerUI();
