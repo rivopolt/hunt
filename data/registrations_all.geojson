@@ -146,6 +146,34 @@
         "group_code": "9393",
         "registered_at": "2026-08-20T06:09:05.757Z"
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            27.06035614013672,
+            58.268433593638804
+          ],
+          [
+            27.066020965576172,
+            58.26536381694468
+          ],
+          [
+            27.069454193115238,
+            58.26247437239232
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "hundilipud",
+        "date": "2026-08-20",
+        "remarks": "",
+        "registrant": "RP",
+        "group_code": "9393",
+        "registered_at": "2026-08-20T06:10:10.649Z"
+      }
     }
   ]
 }
