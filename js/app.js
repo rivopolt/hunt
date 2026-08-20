@@ -60,14 +60,6 @@ function init() {
   // instead of making people reach to the top of the screen.
   L.control.zoom({ position: "bottomright" }).addTo(map);
 
-  // Scale bar: a thin light-styled line with a small distance label
-  // that updates live as you zoom — placed right under the button
-  // stack (Põhikaart/Ortofoto/Registreeri/Hundilipud) rather than in
-  // Leaflet's own corner-control system, so it's guaranteed visible
-  // there instead of easy to miss tucked into a map corner.
-  const scaleControl = L.control.scale({ metric: true, imperial: false, maxWidth: 120 });
-  document.getElementById("mapScaleBarSlot").appendChild(scaleControl.onAdd(map));
-
   buildBaseLayers();
   setupBaseLayerUI();
   setupCollapseToggles();
@@ -78,12 +70,19 @@ function init() {
   setupMyFilesBrowser();
   setupLocateControls();
   setupCoordReadout();
+  setupScaleBar();
   setupPanelToggle();
   setupModals();
   setupStats();
 
   loadSharedDataset();
   logPresence();
+
+  // Keep the shared dataset in sync across devices without anyone
+  // needing to hit "↻ Lae" manually — safe against the disappearing-
+  // element issue since loadSharedDataset() now merges rather than
+  // blindly overwrites (see recentlyDeletedKeys / __localOnly above).
+  setInterval(loadSharedDataset, 3 * 60 * 1000);
 
   map.on("moveend", debounce(() => {
     refreshAllEnabledPriaLayers();
@@ -457,6 +456,18 @@ function applyQuickDateFilter(target, range) {
 /* ---------------------------------------------------------------------- */
 
 /* ---- Loading (always straight from the server file — never local) ---- */
+// registered_at + group_code is the identity key used throughout (see
+// the Worker's findFeatureIndex) — every feature has had this since day
+// one, no separate id field needed.
+function featureKey(feature) {
+  return `${feature.properties && feature.properties.registered_at}:${feature.properties && feature.properties.group_code}`;
+}
+
+// Keys deleted locally this session — masked out of every subsequent
+// server fetch so a stale read (GitHub Pages can take up to ~a minute
+// to republish after a commit) can't make a deleted item reappear.
+const recentlyDeletedKeys = new Set();
+
 async function loadSharedDataset() {
   const tracksStatusEl = document.getElementById("tracksStatus");
   const hlStatusEl = document.getElementById("hundilipudStatus");
@@ -467,15 +478,23 @@ async function loadSharedDataset() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const geojson = await resp.json();
 
+    const serverFeatures = (geojson.features || []).filter(f => !recentlyDeletedKeys.has(featureKey(f)));
+    const serverKeys = new Set(serverFeatures.map(featureKey));
+
+    // Keep any very-recent local-only adds/edits the server fetch
+    // doesn't have yet, so a periodic or post-save reload never makes
+    // a just-drawn element flash and vanish again.
+    const pendingLocalOnly = sharedDataset.filter(e => e.__localOnly && !serverKeys.has(featureKey(e.feature)));
+
     tracksLayerGroup.clearLayers();
     hundilipudLayerGroup.clearLayers();
-    sharedDataset = (geojson.features || []).map(feature => {
+    sharedDataset = serverFeatures.map(feature => {
       const ft = feature.properties && feature.properties.feature_type;
       if (ft === "presence") return { feature, kind: "presence", group: null };
       const kind = ft === "hundilipud" ? "hundilipud" : "track";
       const group = kind === "hundilipud" ? renderHundilipudFeature(feature) : renderTrackFeature(feature);
       return { feature, kind, group };
-    });
+    }).concat(pendingLocalOnly);
 
     tracksStatusEl.textContent = "Laetud.";
     hlStatusEl.textContent = "Laetud.";
@@ -506,12 +525,15 @@ async function submitFeatureToServer(feature, statusElId) {
     const result = await resp.json().catch(() => ({}));
     if (!resp.ok || !result.ok) throw new Error(result.error || `HTTP ${resp.status}`);
 
-    // Show it on the map right away instead of reloading from the
-    // server file — GitHub Pages can take up to a minute to republish
-    // after the commit, so an immediate reload was fetching the OLD
-    // file and making the just-drawn element flash and vanish.
+    // Show it on the map right away rather than waiting on this reload
+    // to reflect it — GitHub Pages can take up to a minute to republish
+    // after the commit, so loadSharedDataset() might still fetch the OLD
+    // file for a bit. That's fine now: it merges rather than overwrites,
+    // so this call is just a best-effort nudge toward other devices/tabs
+    // picking up the change sooner than the 3-minute poll.
     const kind = feature.properties.feature_type === "hundilipud" ? "hundilipud" : "track";
     addFeatureLocallyAndDisplay(feature, kind);
+    loadSharedDataset();
 
     statusEl.textContent = "Salvestatud! Nähtav kohe sinu kaardil, ja mõne hetke pärast (kui GitHub Pages värskendub) ka teistel seadmetel.";
     return true;
@@ -526,7 +548,7 @@ async function submitFeatureToServer(feature, statusElId) {
 // re-renders it, without waiting on a server round-trip.
 function addFeatureLocallyAndDisplay(feature, kind) {
   const group = kind === "hundilipud" ? renderHundilipudFeature(feature) : renderTrackFeature(feature);
-  sharedDataset.push({ feature, kind, group });
+  sharedDataset.push({ feature, kind, group, __localOnly: true });
   if (kind === "track") applyTracksFilter(); else applyHundilipudFilter();
   refreshGroupStats();
 }
@@ -540,7 +562,7 @@ function replaceFeatureLocally(oldEntry, newFeature, kind) {
   }
   const idx = sharedDataset.indexOf(oldEntry);
   const group = kind === "hundilipud" ? renderHundilipudFeature(newFeature) : renderTrackFeature(newFeature);
-  const newEntry = { feature: newFeature, kind, group };
+  const newEntry = { feature: newFeature, kind, group, __localOnly: true };
   if (idx !== -1) sharedDataset.splice(idx, 1, newEntry);
   else sharedDataset.push(newEntry);
   if (kind === "track") applyTracksFilter(); else applyHundilipudFilter();
@@ -549,6 +571,7 @@ function replaceFeatureLocally(oldEntry, newFeature, kind) {
 
 // Removes an entry (used after a successful delete).
 function removeFeatureLocally(entry) {
+  recentlyDeletedKeys.add(featureKey(entry.feature));
   if (entry.group) {
     tracksLayerGroup.removeLayer(entry.group);
     hundilipudLayerGroup.removeLayer(entry.group);
@@ -618,7 +641,10 @@ async function confirmDeleteFeature(feature, kind) {
     e.feature.properties.group_code === feature.properties.group_code
   );
   const success = await submitFeatureDelete(feature);
-  if (success && entry) removeFeatureLocally(entry);
+  if (success && entry) {
+    removeFeatureLocally(entry);
+    loadSharedDataset();
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -988,6 +1014,7 @@ async function saveTrackRegistration() {
       replaceFeatureLocally(trackEditEntry, feature, "track");
       exitTrackEditMode();
       cancelTrackDrawing();
+      loadSharedDataset();
     } else {
       trackSaveBtn.disabled = false;
     }
@@ -1350,6 +1377,7 @@ async function saveHundilipud() {
       replaceFeatureLocally(hundilipudEditEntry, feature, "hundilipud");
       exitHundilipudEditMode();
       cancelHundilipudDrawing();
+      loadSharedDataset();
     } else {
       saveBtn.disabled = false;
     }
@@ -1792,6 +1820,45 @@ function setupCoordReadout() {
   const el = document.getElementById("coordReadout");
   map.on("mousemove", e => { el.textContent = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`; });
   map.on("click", e => { el.textContent = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)} (klikitud)`; });
+}
+
+/* ---------------------------------------------------------------------- */
+/* SCALE BAR — deliberately custom rather than Leaflet's built-in         */
+/* L.control.scale, so its width always matches the quick-button stack    */
+/* above it (Leaflet's own scale control picks its own "nice number"      */
+/* width instead of a fixed one). Ported from SAK26.                       */
+/* ---------------------------------------------------------------------- */
+function setupScaleBar() {
+  updateScaleBar();
+  setTimeout(updateScaleBar, 300); // defensive: catch any late layout settling on first paint
+  map.on("zoomend", updateScaleBar);
+  map.on("moveend", updateScaleBar);
+  window.addEventListener("resize", debounce(updateScaleBar, 200));
+}
+
+function updateScaleBar() {
+  const lineEl = document.querySelector("#mapScaleBar .mapScaleBarLine");
+  const labelEl = document.getElementById("mapScaleBarLabel");
+  if (!lineEl || !labelEl || !map) return;
+
+  const widthPx = lineEl.getBoundingClientRect().width;
+  if (!widthPx) return;
+
+  const centerY = map.getSize().y / 2;
+  const p1 = map.containerPointToLatLng([0, centerY]);
+  const p2 = map.containerPointToLatLng([widthPx, centerY]);
+  const meters = map.distance(p1, p2);
+
+  labelEl.textContent = formatScaleMeters(meters);
+}
+
+function formatScaleMeters(meters) {
+  let rounded;
+  if (meters < 20) rounded = Math.round(meters);
+  else if (meters < 200) rounded = Math.round(meters / 5) * 5;
+  else if (meters < 2000) rounded = Math.round(meters / 50) * 50;
+  else rounded = Math.round(meters / 500) * 500;
+  return `${rounded} m`;
 }
 
 /* ---------------------------------------------------------------------- */
