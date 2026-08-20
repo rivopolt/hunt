@@ -263,11 +263,13 @@ html, body {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 6px 4px;
   font-size: 13px;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.15);
   white-space: nowrap;
+  width: 46px;
+  text-align: center;
 }
 .mapQuickBtn:hover { background: #eef4ff; }
 .mapQuickBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -332,18 +334,16 @@ html, body {
 .mapLocateBtn:hover { background: #eef4ff; }
 .mapLocateBtn.active { background: var(--accent); filter: brightness(1.1); }
 
-/* Leaflet's own zoom +/- control, bottom-right, above the location pin.
-   Buttons enlarged 1/4 (40px -> 50px) and nudged a little higher than
-   before. */
+/* Leaflet's own zoom +/- control, bottom-right, above the location pin. */
 .leaflet-bottom.leaflet-right .leaflet-control-zoom {
   margin: 0 10px 116px 0;
 }
 .leaflet-control-zoom-in,
 .leaflet-control-zoom-out {
-  width: 50px !important;
-  height: 50px !important;
-  line-height: 50px !important;
-  font-size: 25px;
+  width: 38px !important;
+  height: 38px !important;
+  line-height: 38px !important;
+  font-size: 19px;
 }
 
 /* -------- User location "blue dot" (Google-Maps style) -------- */
@@ -1080,19 +1080,28 @@ html, body {
 }
 .editModeBanner .linkBtn { padding: 2px 6px; white-space: nowrap; }
 
-/* Map scale bar — thin, light styling with a small distance label. */
-.leaflet-control-scale {
-  margin-bottom: 8px !important;
-  margin-left: 8px !important;
+/* Map scale bar — ported directly from SAK26's own custom implementation:
+   deliberately not Leaflet's built-in L.control.scale, so its width
+   always matches the quick-button stack above it exactly (Leaflet's own
+   scale control picks its own "nice number" width instead of a fixed one). */
+.mapScaleBar {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px 6px 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  box-sizing: border-box;
 }
-.leaflet-control-scale-line {
-  background: rgba(255,255,255,0.75);
-  border: 1px solid rgba(0,0,0,0.35);
-  border-top: none;
-  border-radius: 0 0 2px 2px;
-  box-shadow: none;
-  color: #444;
-  font-size: 10px;
-  line-height: 1.2;
-  padding: 1px 4px 0;
+.mapScaleBarLabel {
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-main);
+  margin-bottom: 2px;
+  line-height: 1;
+}
+.mapScaleBarLine {
+  height: 6px;
+  border-left: 2px solid var(--text-main);
+  border-right: 2px solid var(--text-main);
+  border-bottom: 2px solid var(--text-main);
 }
