@@ -174,6 +174,34 @@
         "group_code": "9393",
         "registered_at": "2026-08-20T06:10:10.649Z"
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            26.95668706026946,
+            58.242793252141794
+          ],
+          [
+            26.959261980923753,
+            58.238636956156306
+          ]
+        ]
+      },
+      "properties": {
+        "feature_type": "track",
+        "geom_type": "line",
+        "species": "hunt",
+        "direction": "end",
+        "date": "2026-08-20",
+        "pack_size": 2,
+        "remarks": "",
+        "registrant": "RP",
+        "group_code": "9393",
+        "registered_at": "2026-08-20T10:47:43.879Z"
+      }
     }
   ]
 }
