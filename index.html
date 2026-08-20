@@ -260,12 +260,15 @@
     <div id="map"></div>
     <div class="mapTopRightControls">
       <div class="mapQuickBaseButtons">
-        <button id="quickKaartBtn" class="mapQuickBtn" data-layer-id="maaamet_kaart">Põhikaart</button>
-        <button id="quickFotoBtn" class="mapQuickBtn" data-layer-id="maaamet_foto">Ortofoto</button>
-        <button id="trackRegisterToggleBtn" class="mapQuickBtn trackRegisterBtn">🐾 Registreeri jälg</button>
-        <button id="hundilipudToggleBtn" class="mapQuickBtn hundilipudBtn">🚩 Hundilipud</button>
+        <button id="quickKaartBtn" class="mapQuickBtn" data-layer-id="maaamet_kaart" title="Põhikaart">PK</button>
+        <button id="quickFotoBtn" class="mapQuickBtn" data-layer-id="maaamet_foto" title="Ortofoto">OF</button>
+        <button id="trackRegisterToggleBtn" class="mapQuickBtn trackRegisterBtn" title="Registreeri jälg">🐾</button>
+        <button id="hundilipudToggleBtn" class="mapQuickBtn hundilipudBtn" title="Hundilipud">🚩</button>
+        <div id="mapScaleBar" class="mapScaleBar">
+          <div class="mapScaleBarLine"></div>
+          <div id="mapScaleBarLabel" class="mapScaleBarLabel"></div>
+        </div>
       </div>
-      <div id="mapScaleBarSlot" class="mapScaleBarSlot"></div>
 
       <div id="trackRegisterWidget" class="mapSearchWidget hidden">
         <div class="mapSearchWidgetHeader">

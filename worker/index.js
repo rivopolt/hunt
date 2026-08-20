@@ -235,7 +235,7 @@ export default {
       }
     }
 
-    return json({ ok: false, error: "Not found." }, 404, env);
+    return json({ ok: false, error: `Not found: ${request.method} ${url.pathname}` }, 404, env);
   },
 };
 
