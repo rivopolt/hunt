@@ -52,9 +52,13 @@ const CONFIG = {
      tühi, näitab rakendus salvestamisel selget veateadet.
   ------------------------------------------------------------------- */
   dataUrl: "data/registrations_all.geojson",
-  apiUrl: "https://jaljed-api.rivopolt.workers.dev",  // nt "https://jaljed-api.SINU-NIMI.workers.dev"
+  apiUrl: "",  // nt "https://jaljed-api.SINU-NIMI.workers.dev"
 
   tracks: {
+    // "Karja suurus" label only renders on the map once zoomed in at
+    // least this far — keeps things readable instead of a cluttered
+    // wall of numbers when zoomed out.
+    labelMinZoom: 14,
     species: [
       { id: "hunt", label: "Hunt", color: "#8b0000" },
       { id: "ilves", label: "Ilves", color: "#d2691e" },

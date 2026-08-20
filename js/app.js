@@ -776,6 +776,13 @@ function setupStats() {
 function setupTracks() {
   tracksLayerGroup = L.layerGroup().addTo(map);
 
+  // "Karja suurus" labels only show once zoomed in past labelMinZoom —
+  // toggled via a container class rather than opening/closing each
+  // tooltip individually, so it stays cheap regardless of how many
+  // tracks are on the map.
+  updateTrackLabelVisibility();
+  map.on("zoomend", updateTrackLabelVisibility);
+
   const speciesSelect = document.getElementById("trackSpeciesSelect");
   CONFIG.tracks.species.forEach(s => {
     const opt = document.createElement("option");
@@ -1157,27 +1164,74 @@ function createArrowMarker(latlng, bearingDeg, color) {
   });
 }
 
+// Thematic-by-date coloring: today = full strength, yesterday = lighter,
+// everything older = lighter still. The base hue (species color for
+// tracks, red for hundilipud) stays the same — only lightness changes.
+function dateCategory(dateStr) {
+  if (!dateStr) return "older";
+  if (dateStr === todayIsoDate()) return "today";
+  if (dateStr === todayIsoDate(-1)) return "yesterday";
+  return "older";
+}
+
+function lightenHexColor(hex, amount) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const num = parseInt(m[1], 16);
+  const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  const mix = c => Math.round(c + (255 - c) * amount);
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
+}
+
+function dateThemedColor(baseColor, dateStr) {
+  const category = dateCategory(dateStr);
+  if (category === "today") return baseColor;
+  if (category === "yesterday") return lightenHexColor(baseColor, 0.4);
+  return lightenHexColor(baseColor, 0.7); // older
+}
+
+function updateTrackLabelVisibility() {
+  const visible = map.getZoom() >= CONFIG.tracks.labelMinZoom;
+  map.getContainer().classList.toggle("track-labels-visible", visible);
+}
+
 function renderTrackFeature(feature) {
   const props = feature.properties || {};
   const sp = speciesConfig(props.species);
+  const color = dateThemedColor(sp.color, props.date);
   const layers = [];
+  let mainLayer;
 
   if (feature.geometry.type === "Point") {
     const latlng = L.latLng(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
-    layers.push(L.circleMarker(latlng, {
-      radius: 7, color: sp.color, weight: 2, fillColor: sp.color, fillOpacity: 0.75
-    }));
+    mainLayer = L.circleMarker(latlng, {
+      radius: 7, color, weight: 2, fillColor: color, fillOpacity: 0.75
+    });
+    layers.push(mainLayer);
   } else if (feature.geometry.type === "LineString") {
     const latlngs = feature.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
-    layers.push(L.polyline(latlngs, { color: sp.color, weight: 4, opacity: 0.9 }));
+    mainLayer = L.polyline(latlngs, { color, weight: 4, opacity: 0.9 });
+    layers.push(mainLayer);
     const dir = props.direction || "none";
     if (dir === "start" || dir === "both") {
-      layers.push(createArrowMarker(latlngs[0], computeBearingDeg(latlngs[1], latlngs[0]), sp.color));
+      layers.push(createArrowMarker(latlngs[0], computeBearingDeg(latlngs[1], latlngs[0]), color));
     }
     if (dir === "end" || dir === "both") {
       const n = latlngs.length;
-      layers.push(createArrowMarker(latlngs[n - 1], computeBearingDeg(latlngs[n - 2], latlngs[n - 1]), sp.color));
+      layers.push(createArrowMarker(latlngs[n - 1], computeBearingDeg(latlngs[n - 2], latlngs[n - 1]), color));
     }
+  }
+
+  // "Karja suurus" label — only shown once zoomed in enough to read
+  // without cluttering the map (toggled via a container class, see
+  // updateLabelVisibility()), so it doesn't render at all otherwise.
+  if (mainLayer && props.pack_size != null && props.pack_size !== "") {
+    mainLayer.bindTooltip(String(props.pack_size), {
+      permanent: true,
+      direction: "top",
+      offset: [0, -6],
+      className: "trackPackSizeLabel"
+    });
   }
 
   const group = L.featureGroup(layers);
@@ -1445,8 +1499,9 @@ function hundilipudPopupHtml(props) {
 
 function renderHundilipudFeature(feature) {
   const latlngs = feature.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+  const color = dateThemedColor(CONFIG.hundilipud.color, feature.properties && feature.properties.date);
   const line = L.polyline(latlngs, {
-    color: CONFIG.hundilipud.color,
+    color,
     weight: 4,
     opacity: 0.9,
     dashArray: CONFIG.hundilipud.dashArray
